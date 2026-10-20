@@ -17,10 +17,10 @@ Including another URLconf
 from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.views import TokenRefreshView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
 
-from users.views import RegisterView
+from users.views import LoginView, RegisterView
 
 urlpatterns = [
     # Documentación
@@ -28,7 +28,7 @@ urlpatterns = [
     path('api/schema/swagger/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('api/schema/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
     # Autenticación
-    path('api/auth/obtain_token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/auth/obtain_token/', LoginView.as_view(), name='token_obtain_pair'),
     path('api/auth/refresh_token/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/user/', include('users.urls')),
     path('api/items/', include('items.urls'))

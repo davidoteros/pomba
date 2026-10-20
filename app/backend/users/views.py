@@ -1,7 +1,9 @@
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
+from rest_framework_simplejwt.views import TokenObtainPairView
 from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer
 from rest_framework import serializers as drf_serializers
 
@@ -14,6 +16,12 @@ from .serializers import (
 )
 
 
+# Login con límite de intentos por IP para frenar el adivinado de contraseñas
+class LoginView(TokenObtainPairView):
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'login'
+
+
 @extend_schema_view(
     post=extend_schema(request=UserSerializer, responses={201: UserSerializer}),
 )
@@ -21,6 +29,8 @@ from .serializers import (
 class RegisterView(generics.CreateAPIView):
     serializer_class = UserSerializer
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'registro'
 
 
 # GET: perfil del usuario. PATCH: actualiza nombre/apellidos/email. DELETE: elimina cuenta.
@@ -54,6 +64,8 @@ class MeView(APIView):
 # Cambia la contraseña del usuario autenticado
 class ChangePasswordView(APIView):
     permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'cambiar_password'
 
     @extend_schema(
         request=ChangePasswordSerializer,

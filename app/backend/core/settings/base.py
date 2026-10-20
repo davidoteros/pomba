@@ -187,6 +187,22 @@ REST_FRAMEWORK = {
     ),
     'EXCEPTION_HANDLER': 'drf_standardized_errors.handler.exception_handler',
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    # Nº de proxies  delante de Django (hoy solo Nginx). Sin esto DRF usa la cabecera y pueden cambiar la IP para probar por fuerza bruta.
+    # X-Forwarded-For entera como IP y el cliente puede inventarse una distinta en cada intento para saltarse los límites. Si se añade otro proxy delante (p. ej. Cloudflare), subirlo.
+    'NUM_PROXIES': 1,
+    'DEFAULT_THROTTLE_RATES': {
+        'login': '5/min',
+        'registro': '3/hour',
+        'cambiar_password': '5/hour',
+    },
+}
+
+# Caché en Postgres para que los workers de Gunicorn compartan los contadores de los límites
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+        'LOCATION': 'django_cache',
+    }
 }
 
 SPECTACULAR_SETTINGS = {

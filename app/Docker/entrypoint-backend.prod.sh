@@ -6,6 +6,9 @@ cd /app
 echo "Aplicando migraciones..."
 python manage.py migrate --noinput
 
+echo "Creando tabla de caché..."
+python manage.py createcachetable
+
 echo "Recopilando ficheros estáticos..."
 python manage.py collectstatic --noinput
 
