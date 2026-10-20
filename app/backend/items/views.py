@@ -451,10 +451,10 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
     def versiones_confirmar_subida(self, request, pk=None):
         item       = self.get_object()
         key        = request.data.get('key', '').strip()
-        tamano     = request.data.get('tamano_bytes', 0)
         mime_type  = request.data.get('mime_type', '')
         if not key:
             return Response({'detail': 'key es obligatorio.'}, status=status.HTTP_400_BAD_REQUEST)
+        tamano = ItemService.validar_key_subida(request.user, key, subcarpeta='v/')
         item = ItemService.registrar_version(item, key, tamano, mime_type)
         threading.Thread(target=ItemService.indexar_item, args=(item,), daemon=True).start()
         return Response(ItemSerializer(item, context={'request': request}).data)
@@ -588,11 +588,12 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
         nombre = request.data.get('nombre', '').strip()
         key = request.data.get('key', '').strip()
         padre_id = request.data.get('padre', None)
-        tamano_bytes = request.data.get('tamano_bytes', 0)
         mime_type = request.data.get('mime_type', 'application/octet-stream')
 
         if not nombre or not key:
             return Response({'detail': 'nombre y key son obligatorios.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        tamano_bytes = ItemService.validar_key_subida(request.user, key)
 
         padre = None
         if padre_id:

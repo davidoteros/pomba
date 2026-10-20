@@ -6,6 +6,7 @@ import zipfile
 
 import boto3
 from botocore.client import Config
+from botocore.exceptions import ClientError
 from django.utils import timezone
 
 from django.core.exceptions import ValidationError
@@ -566,6 +567,29 @@ class ItemService:
             ExpiresIn=3600,
             HttpMethod='PUT',
         )
+
+    @staticmethod
+    def validar_key_subida(usuario, key, subcarpeta=''):
+        """
+        Comprueba que la key pertenece al usuario, que no está ya registrada y que
+        el fichero existe en Garage. Devuelve el tamaño real del objeto.
+        """
+        prefijo = f"users/{usuario.id}/{subcarpeta}"
+        resto = key[len(prefijo):]
+        if not key.startswith(prefijo) or not resto or '/' in resto or '..' in key:
+            raise DRFValidationError({'key': 'Key no válida.'})
+
+        if Item.objects.filter(file=key).exists() or ItemVersion.objects.filter(file=key).exists():
+            raise DRFValidationError({'key': 'Key ya registrada.'})
+
+        try:
+            cabecera = ItemService.get_s3_client().head_object(
+                Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=key
+            )
+        except ClientError:
+            raise DRFValidationError({'key': 'El archivo no se ha subido.'})
+
+        return cabecera['ContentLength']
 
     @staticmethod
     def registrar_item_subido(usuario, nombre, padre, key, tamano_bytes, mime_type):
