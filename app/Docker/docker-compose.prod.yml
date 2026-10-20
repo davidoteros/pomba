@@ -71,10 +71,7 @@ services:
       - garage_meta:/var/lib/garage/meta
       - garage_data:/var/lib/garage/data
       - ./garage.toml:/etc/garage.toml:ro
-    ports:
-      - "3901:3901"   # RPC (acceso interno al clúster)
-      - "3903:3903"   # Admin API
-      # Puerto 3900 lo gestionamos con Nginx
+    # Sin puertos: solo accesible por la red interna appnet
     networks:
       - appnet
 
