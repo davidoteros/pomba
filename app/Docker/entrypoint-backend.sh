@@ -14,12 +14,12 @@ if [ -f "requirements.txt" ]; then
         pip install --no-cache-dir -r requirements.txt
         echo "$CURRENT_HASH" > "$HASH_FILE"
     else
-        echo "✅ Dependencias sen cambios, saltando pip install."
+        echo "✅ Dependencias sin cambios, saltando pip install."
     fi
 fi
 
-echo "🔄 Aplicando migracións..."
+echo "🔄 Aplicando migraciones..."
 python manage.py migrate --noinput
 
-echo "🚀 Iniciando servidor de desenvolvemento..."
+echo "🚀 Iniciando servidor de desarrollo..."
 exec python manage.py runserver 0.0.0.0:8000

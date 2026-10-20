@@ -1,5 +1,5 @@
 #!/bin/bash
-echo "🛠️ Preparando contorna local para o meu proxecto..."
+echo "🛠️ Preparando entorno local de Python..."
 
 VENV_DIR="backend/libraries"
 HASH_FILE="backend/.pip_hash_local"
@@ -30,10 +30,10 @@ if [ -f "$REQUIREMENTS" ]; then
         pip install --no-cache-dir -r "$REQUIREMENTS"
         echo "$CURRENT_HASH" > "$HASH_FILE"
     else
-        echo "✅ Dependencias locais sen cambios, saltando pip install."
+        echo "✅ Dependencias locales sin cambios, saltando pip install."
     fi
 else
-    echo "⚠️  Non se atopou backend/requirements.txt."
+    echo "⚠️  No se encontró backend/requirements.txt."
 fi
 
 echo "🚀 Todo preparado!"

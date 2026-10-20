@@ -1,12 +1,12 @@
 # Pomba
 
-**Pomba** é unha plataforma web de almacenamento persoal de ficheiros, deseñada como alternativa libre e privada a servizos como Google Drive ou Dropbox. Permite aos usuarios gardar, organizar e xestionar os seus documentos, imaxes e arquivos de audio dende o navegador, sen depender de terceiros que poidan facer uso dos seus datos.
+**Pomba** es una plataforma web de almacenamiento personal de ficheros, diseñada como alternativa libre y privada a servicios como Google Drive o Dropbox. Permite a los usuarios guardar, organizar y gestionar sus documentos, imágenes y archivos de audio desde el navegador, sin depender de terceros que puedan hacer uso de sus datos.
 
-O sistema ofrece autenticación segura con JWT, xestión de ficheiros en cartafoles, previsualización de contido (PDF, imaxes e audio) e un motor de busca baseado en Elasticsearch que permite localizar arquivos por nome, tipo ou metadatos. O almacenamento realízase mediante **Garage**, un sistema compatible co protocolo S3.
+El sistema ofrece autenticación segura con JWT, gestión de ficheros en carpetas, previsualización de contenido (PDF, imágenes y audio) y un motor de búsqueda basado en Elasticsearch que permite localizar archivos por nombre, tipo o metadatos. El almacenamiento se realiza mediante **Garage**, un sistema compatible con el protocolo S3.
 
-Unha das funcionalidades máis destacadas é o **control de versións de ficheiros de audio**, orientado a músicos que permite comparar e recuperar versións previas de calquera canción ou proxecto musical.
+Una de las funcionalidades más destacadas es el **control de versiones de ficheros de audio**, orientado a músicos, que permite comparar y recuperar versiones previas de cualquier canción o proyecto musical.
 
-A aplicación está completamente contenerizada con Docker e segue unha arquitectura desacoplada: backend en **Django REST Framework**, frontend en **Vue.js 3**, base de datos **PostgreSQL**, motor de busca **Elasticsearch** e almacenamento de obxectos con **Garage**.
+Toda la aplicación se ejecuta en Docker y tiene una arquitectura desacoplada: backend en **Django REST Framework**, frontend en **Vue.js 3**, base de datos **PostgreSQL**, búsqueda con **Elasticsearch** y almacenamiento de objetos con **Garage**.
 
 ---
 
@@ -14,173 +14,151 @@ A aplicación está completamente contenerizada con Docker e segue unha arquitec
 
 ![Login](screenshots/login.png)
 
-![Explorador de arquivos](screenshots/explorador.png)
+![Explorador de archivos](screenshots/explorador.png)
 
 ---
 
-## Instalación / Posta en marcha
+## Instalación / Puesta en marcha
 
 ### Requisitos previos
 
-
-- Docker e Docker Compose
+- Docker y Docker Compose
 - `make`
 - Python 3.12+
 
 ### Pasos
 
-**1. Clonar o repositorio**
+**1. Clonar el repositorio**
 
 ```bash
 git clone https://github.com/davidoteros/pomba.git
 cd pomba/app
 ```
 
-**2. Configurar as variables de entorno**
+**2. Configurar las variables de entorno**
 
-Copia o ficheiro de exemplo e completa os valores:
+Copia el fichero de ejemplo y completa los valores:
 
 ```bash
 cp Docker/.env.example Docker/.env.development
 ```
 
-Os campos obrigatorios son:
+Los campos obligatorios son:
 
 | Variable | Descripción |
 |---|---|
 | `DJANGO_SECRET_KEY` | Clave secreta de Django |
-| `POSTGRES_DB` | Nome da base de datos |
+| `POSTGRES_DB` | Nombre de la base de datos |
 | `POSTGRES_USER` | Usuario de PostgreSQL |
-| `POSTGRES_PASSWORD` | Contrasinal de PostgreSQL |
-| `AWS_ACCESS_KEY_ID` | Clave de acceso do bucket Garage |
-| `AWS_SECRET_ACCESS_KEY` | Clave secreta do bucket Garage |
-| `GARAGE_RPC_SECRET` | Segredo RPC de Garage (cadea hexadecimal de 64 chars) |
+| `POSTGRES_PASSWORD` | Contraseña de PostgreSQL |
+| `GARAGE_RPC_SECRET` | Secreto RPC de Garage (cadena hexadecimal de 64 caracteres) |
 
-Para xerar `GARAGE_RPC_SECRET` podes usar:
+Las claves `AWS_ACCESS_KEY_ID` y `AWS_SECRET_ACCESS_KEY` las rellena automáticamente `make setup-garage` en el paso 5.
+
+Para generar `GARAGE_RPC_SECRET` puedes usar:
+
 ```bash
 openssl rand -hex 32
 ```
 
-**3. Configurar Garage (almacenamento S3)**
+**3. Configurar Garage**
 
-Cópiase `Docker/garage.toml.example` a `Docker/garage.toml` (co mesmo `GARAGE_RPC_SECRET` do `.env.development`), levántase a infraestrutura co paso 4 e despois execútase:
-
-```bash
-make setup-garage
-```
-
-O script crea o layout, o bucket `pomba-app` e a clave `django-app`, garda as claves en `Docker/.env.development` e recrea o backend. É idempotente: pódese repetir sen problema. Se prefires facelo a man, consulta [Configuración manual de Garage](#configuración-manual-de-garage) máis abaixo.
-
-**4. Levantar os servizos**
-
-```bash
-make up
-```
-
-Isto levanta todos os contedores (Nginx, Django, Vue, PostgreSQL, Garage, Elasticsearch, Kibana) e instala as dependencias Python no entorno local.
-
-**5. Crear un superusuario (opcional, para o admin de Django)**
-
-```bash
-docker exec -it django_backend python manage.py createsuperuser
-```
-
-
----
-
-## Configuración manual de Garage
-
-[Garage](https://garagehq.deuxfleurs.fr/) é un sistema de almacenamento de obxectos compatible con S3, lixeiro e ideal para autoaloxamento. A continuación explícase paso a paso o que fai `make setup-garage`, por se queres entendelo ou repetilo a man.
-
-### 0. Configurar garage.toml
-
-Antes de levantar Garage, é necesario ter o ficheiro `garage.toml` en `Docker/`. Hai un exemplo en `Docker/garage.toml.example`:
+Copia el ejemplo de configuración y pega en `rpc_secret` el mismo valor que pusiste en `GARAGE_RPC_SECRET`:
 
 ```bash
 cp Docker/garage.toml.example Docker/garage.toml
 ```
 
-O ficheiro configura os directorios de datos, os portos e o segredo RPC. Os valores por defecto funcionan para o stack de Docker, pero hai que asegurarse de que `rpc_secret` coincide co valor de `GARAGE_RPC_SECRET` no `.env`:
+Este fichero debe existir antes de levantar los servicios.
 
-```toml
-metadata_dir = "/var/lib/garage/meta"
-data_dir     = "/var/lib/garage/data"
-replication_factor = 1
+**4. Levantar los servicios**
 
-rpc_bind_addr   = "0.0.0.0:3901"
-rpc_public_addr = "garage:3901"
-rpc_secret      = "pon-aqui-o-mesmo-valor-que-GARAGE_RPC_SECRET"
-
-[s3_api]
-s3_region    = "garage"
-api_bind_addr = "0.0.0.0:3900"
-
-[admin]
-api_bind_addr = "0.0.0.0:3903"
+```bash
+make up
 ```
 
-### 1. Levantar só Garage
+Esto levanta todos los contenedores (Nginx, Django, Vue, PostgreSQL, Garage, Elasticsearch, Kibana) y crea un entorno virtual local de Python con las dependencias.
+
+**5. Inicializar el almacenamiento (Garage)**
+
+```bash
+make setup-garage
+```
+
+El script crea el layout, el bucket `pomba-app` y la clave `django-app`, guarda las claves en `Docker/.env.development` y recrea el backend para que las lea. Si prefieres hacerlo a mano, consulta [Configuración manual de Garage](#configuración-manual-de-garage).
+
+**6. Crear un superusuario (opcional, para el admin de Django)**
+
+```bash
+make createsuperuser
+```
+
+---
+
+## Configuración manual de Garage
+
+[Garage](https://garagehq.deuxfleurs.fr/) es un sistema de almacenamiento de objetos compatible con S3, ligero e ideal para ser autoalojado. A continuación se explica paso a paso lo que hace `make setup-garage`, por si quieres entenderlo o repetirlo a mano.
+
+Requisito: haber copiado `Docker/garage.toml` y tener `rpc_secret` igual a `GARAGE_RPC_SECRET` (paso 3 de la instalación).
+
+### 1. Levantar solo Garage
+
+Si ya has ejecutado `make up`, saltate este paso.
 
 ```bash
 docker compose --env-file Docker/.env.development -f Docker/docker-compose.yml up -d garage
 ```
 
-### 2. Ver o estado do clúster
+### 2. Ver el estado del clúster
 
 ```bash
 docker exec -it garage /garage status
 ```
 
-### 3. Obter o ID do nodo
+### 3. Obtener el ID del nodo
 
 ```bash
 docker exec -it garage /garage node id
 ```
 
-Verás algo parecido a:
+La última línea de la salida tiene la forma `<ID>@garage:3901`, donde el ID son 64 caracteres hexadecimales. Copia solo el ID, es decir, lo que va antes de la `@`.
 
-```
-Garage node ID: a1b2c3d4e5f6...  (64 caracteres hexadecimais)
-```
-
-Copia os primeiros 16 caracteres do ID (ou o ID completo).
-
-### 4. Asignar o layout ao nodo
+### 4. Asignar el layout al nodo
 
 ```bash
 docker exec -it garage /garage layout assign -z dc1 -c 1G <NODE_ID>
 ```
 
-- `-z dc1` → zona do datacenter (pode ser calquera nome)
-- `-c 1G` → capacidade asignada ao nodo
-- `<NODE_ID>` → substitúe polo ID obtido no paso anterior
+- `-z dc1` → zona del centro de datos (puede ser cualquier nombre)
+- `-c 1G` → capacidad asignada al nodo
+- `<NODE_ID>` → sustitúyelo por el ID obtenido en el paso anterior
 
-### 5. Aplicar o layout
+### 5. Aplicar el layout
 
 ```bash
 docker exec -it garage /garage layout apply --version 1
 ```
 
-### 6. Crear o bucket
+### 6. Crear el bucket
 
 ```bash
 docker exec -it garage /garage bucket create pomba-app
 ```
 
-### 7. Crear unha clave de acceso
+### 7. Crear una clave de acceso
 
 ```bash
 docker exec -it garage /garage key create django-app
 ```
 
-A saída mostrará os valores de `AWS_ACCESS_KEY_ID` e `AWS_SECRET_ACCESS_KEY`. Cópiaos no teu `.env.development`:
+La salida mostrará los valores de `AWS_ACCESS_KEY_ID` y `AWS_SECRET_ACCESS_KEY`. Cópialos en tu `.env.development`:
 
 ```env
 AWS_ACCESS_KEY_ID=GKxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 AWS_SECRET_ACCESS_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-### 8. Dar permisos á clave sobre o bucket
+### 8. Dar permisos a la clave sobre el bucket
 
 ```bash
 docker exec -it garage /garage bucket allow --read --write pomba-app --key django-app
@@ -193,92 +171,100 @@ docker exec -it garage /garage bucket list
 docker exec -it garage /garage key list
 ```
 
-Se o fixeches a man, reinicia o backend para que lea as claves: `make up`.
+### 10. Recrear el backend
+
+El backend solo lee las variables de entorno al crearse, así que hay que recrearlo para que use las claves nuevas:
+
+```bash
+docker compose --env-file Docker/.env.development -f Docker/docker-compose.yml up -d --force-recreate --no-deps backend
+```
 
 ---
 
 ## Uso
 
-A aplicación está accesible en:
+La aplicación está accesible en:
 
-| Servizo | URL |
+| Servicio | URL |
 |---|---|
 | Aplicación web | [pomba.me](https://pomba.me) |
 | API Swagger | [pomba.me/api/schema/swagger/](https://pomba.me/api/schema/swagger/) |
 
-En local (modo desenvolvemento):
+En local (modo desarrollo):
 
-| Servizo | URL |
+| Servicio | URL |
 |---|---|
 | Aplicación web | `http://localhost` |
 | API Swagger | `http://localhost/api/schema/swagger/` |
-| Admin Django | `http://localhost/admin/` |
+| Admin de Django | `http://localhost/admin/` |
 | Kibana (Elasticsearch) | `http://localhost:5601` |
 
 ### Comandos útiles
 
-**Desenvolvemento**
+Todos se ejecutan desde la carpeta `app/`.
+
+**Desarrollo**
 
 ```bash
-make up          # Levanta todos os servizos
-make down        # Para todos os servizos
-make build       # Reconstrúe as imaxes de Docker
-make clean       # Elimina contedores e volumes (borra os datos)
+make up          # Levanta todos los servicios
+make down        # Para todos los servicios
+make build       # Reconstruye las imágenes de Docker
+make clean       # Elimina contenedores y volúmenes (borra los datos)
 ```
 
 **Producción**
 
 ```bash
-make up-prod     # Levanta o stack de producción
-make down-prod   # Para o stack de producción
-make build-prod  # Constrúe as imaxes de producción
-make clean-prod  # Elimina contedores e volumes de producción
+make up-prod     # Levanta el stack de producción
+make down-prod   # Para el stack de producción
+make build-prod  # Construye las imágenes de producción
+make clean-prod  # Elimina contenedores y volúmenes de producción
 ```
 
-**Outros**
+**Otros**
 
 ```bash
-make status      # Mostra o estado do clúster Garage
-make start-app NAME=<nome>  # Crea unha nova app de Django
-make bash        # Abre unha terminal no contedor do backend
-make migrate     # Crea e aplica as migracións
-make logs        # Segue os logs do backend
-make createsuperuser  # Crea un superusuario para o admin de Django
+make setup-garage     # Inicializa Garage (layout, bucket y claves)
+make status           # Muestra el estado del clúster Garage
+make bash             # Abre una terminal en el contenedor del backend
+make migrate          # Crea y aplica las migraciones
+make logs             # Sigue los logs del backend
+make createsuperuser  # Crea un superusuario para el admin de Django
+make start-app NAME=<nombre>  # Crea una nueva app de Django
 ```
 
 ---
 
-## Sobre a persoa autora
+## Sobre el autor
 
-Son David Otero, estudante de Desenvolvemento de Aplicacións Web no IES San Clemente (Santiago de Compostela). Teño especial interese no desenvolvemento backend, a privacidade dixital e o software libre.
+Soy David Otero, estudiante de Desarrollo de Aplicaciones Web en el IES San Clemente (Santiago de Compostela). Tengo especial interés en el desarrollo backend, la privacidad digital y el software libre.
 
-Elixín este proxecto porque quería construír algo con utilidade real: unha alternativa a Google Drive que calquera persoa poida autoaloxa no seu propio servidor, sen ceder os seus datos a terceiros nin depender de plataformas privativas. A crecente preocupación pola privacidade e o uso que grandes empresas fan dos datos dos usuarios foi o principal motivo para desenvolver Pomba.
+Elegí este proyecto porque quería construir algo con utilidad real: una alternativa a Google Drive que cualquier persona pueda autoalojar en su propio servidor, sin ceder sus datos a terceros ni depender de plataformas privativas. La creciente preocupación por la privacidad y por el uso que las grandes empresas hacen de los datos de los usuarios fue el principal motivo para desarrollar Pomba.
 
-Podes contactar comigo en: **doterosouto@gmail.com**
+Puedes contactar conmigo en: **doterosouto@gmail.com**
 
 ---
 
 ## Licencia
 
-Este proxecto está licenciado baixo a [GNU General Public License v3.0](LICENSE).
+Este proyecto está licenciado bajo la [GNU General Public License v3.0](LICENSE).
 
-Podes usar, modificar e distribuír este software libremente, sempre que as versións derivadas manteñan a mesma licenza e o código fonte permaneza accesible. Consulta o ficheiro [LICENSE](LICENSE) para máis detalles.
+Puedes usar, modificar y distribuir este software libremente, siempre que las versiones derivadas mantengan la misma licencia y el código fuente permanezca accesible. Consulta el fichero [LICENSE](LICENSE) para más detalles.
 
 ---
 
-
 ## Guía de contribución
 
-As contribucións son benvidas. Se queres colaborar:
+Las contribuciones son bienvenidas. Si quieres colaborar:
 
-1. Fai un *fork* do repositorio.
-2. Crea unha rama nova para a túa funcionalidade: `git checkout -b feature/nova-funcionalidade`.
-3. Fai os teus cambios e subeos con mensaxes descritivas.
-4. Abre un *pull request* describindo o que fixeches e por que.
+1. Haz un *fork* del repositorio.
+2. Crea una rama nueva para tu funcionalidad: `git checkout -b feature/nueva-funcionalidad`.
+3. Haz tus cambios y súbelos con mensajes descriptivos.
+4. Abre un *pull request* describiendo qué has hecho y por qué.
 
-Algunhas áreas onde se pode contribuír:
+Algunas áreas donde se puede contribuir:
 
-- Novas funcionalidades (compartir ficheiros entre usuarios, editor Markdown...)
-- Melloras de rendemento ou seguridade
+- Nuevas funcionalidades (compartir ficheros entre usuarios, editor Markdown...)
+- Mejoras de rendimiento o seguridad
 - Tests automatizados
-- Traducións da interface
+- Traducciones de la interfaz
