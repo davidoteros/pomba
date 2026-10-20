@@ -43,6 +43,9 @@ class ItemSerializer(serializers.ModelSerializer):
         #Si no tiene padre, es correcto ya que es la raiz
         if value is None:
             return value
+        #Comprobamos que la carpeta sea del usuario que hace la petición
+        if value.usuario_id != self.context['request'].user.id:
+            raise serializers.ValidationError("Carpeta no encontrada")
         #Comprobamos que el padre seas una carpeta
         if value.tipo != Item.Tipo.CARPETA:
             raise serializers.ValidationError("Debe ser carpeta")

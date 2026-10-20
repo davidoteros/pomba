@@ -641,7 +641,7 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
         padre_raiz = None
         if padre_id:
             try:
-                padre_raiz = Item.objects.get(id=padre_id, usuario=request.user, tipo='carpeta')
+                padre_raiz = Item.objects.get(id=padre_id, usuario=request.user, tipo='carpeta', eliminado=False)
             except Item.DoesNotExist:
                 return Response({'detail': 'Carpeta padre no encontrada.'}, status=404)
         
