@@ -1,6 +1,13 @@
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from .models import Item, ItemVersion
-from .services import ItemService, mime_previsualizable
+from .services import (
+    ItemService,
+    mime_previsualizable,
+    mime_con_preview_generada,
+    tipo_visor,
+    PREVIEW_FALLIDA,
+)
 
 
 class ItemSerializer(serializers.ModelSerializer):
@@ -8,6 +15,8 @@ class ItemSerializer(serializers.ModelSerializer):
     file = serializers.FileField(allow_empty_file=True, required=False, allow_null=True)
     # Fuente de verdad para saver si algo se puede previsualizar o no (Queremos evitar inyecciones)
     previsualizable = serializers.SerializerMethodField()
+    # Con qué visor lo muestra el frontend: 'imagen', 'audio', 'video' o 'pdf'.
+    tipo_visor = serializers.SerializerMethodField()
 
     class Meta:
         model = Item
@@ -21,6 +30,7 @@ class ItemSerializer(serializers.ModelSerializer):
             "tamano_bytes",
             "mime_type",
             "previsualizable",
+            "tipo_visor",
             "metadatos",
             "favorito",
             "eliminado",
@@ -40,8 +50,23 @@ class ItemSerializer(serializers.ModelSerializer):
             "fecha_modificacion",
         ]
 
+    @extend_schema_field(serializers.BooleanField())
     def get_previsualizable(self, obj):
-        return obj.tipo == Item.Tipo.ARCHIVO and mime_previsualizable(obj.mime_type) is not None
+        if obj.tipo != Item.Tipo.ARCHIVO:
+            return False
+        if mime_previsualizable(obj.mime_type) is not None:
+            return True
+        return (
+            mime_con_preview_generada(obj.mime_type)
+            and bool(obj.preview_key)
+            and obj.preview_key != PREVIEW_FALLIDA
+        )
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_tipo_visor(self, obj):
+        if not self.get_previsualizable(obj):
+            return None
+        return tipo_visor(obj.mime_type)
 
     # Hacemos una validación basica (Esto solo se llama cuando se hace post, put o patch)
     def validate_padre(self, value):

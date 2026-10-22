@@ -18,7 +18,7 @@ from rest_framework import serializers as drf_serializers
 from core.settings import development
 from .models import Item, ItemVersion
 from .serializers import ItemSerializer, ItemVersionSerializer
-from .services import ItemService, mime_previsualizable
+from .services import ItemService, mime_previsualizable, mime_con_preview_generada, PREVIEW_FALLIDA
 
 
 @extend_schema_view(
@@ -349,9 +349,14 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
             )
         return Response({'url': ItemService.generar_url_descarga(item)})
 
-    # Presigned URL inline para previsualizar imagen, audio o PDF
+    # Presigned URL inline para previsualizar imagen, audio o PDF.
+
     @extend_schema(
-        responses=inline_serializer('PreviewResponse', fields={'url': drf_serializers.URLField()}),
+        responses={
+            200: inline_serializer('PreviewResponse', fields={'url': drf_serializers.URLField()}),
+            400: inline_serializer('PreviewNoDisponible', fields={'detail': drf_serializers.CharField()}),
+            409: inline_serializer('PreviewGenerandose', fields={'detail': drf_serializers.CharField()}),
+        },
     )
     @action(detail=True, methods=['get'])
     def previsualizar(self, request, pk=None):
@@ -361,12 +366,27 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
                 {'detail': 'El elemento no es un archivo.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if mime_previsualizable(item.mime_type) is None:
-            return Response(
-                {'detail': 'Tipo de archivo no previsualizable.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        return Response({'url': ItemService.generar_url_preview(item)})
+        if mime_previsualizable(item.mime_type) is not None:
+            return Response({'url': ItemService.generar_url_preview(item)})
+
+
+        if mime_con_preview_generada(item.mime_type):
+            if item.preview_key == PREVIEW_FALLIDA:
+                return Response(
+                    {'detail': 'No se ha podido generar la vista previa de este archivo.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not item.preview_key:
+                return Response(
+                    {'detail': 'La vista previa todavía se está generando.'},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            return Response({'url': ItemService.generar_url_preview_generada(item)})
+
+        return Response(
+            {'detail': 'Tipo de archivo no previsualizable.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     @extend_schema(
         request=inline_serializer('DescargarZipRequest', fields={'ids': drf_serializers.ListField(child=drf_serializers.IntegerField())}),
@@ -624,7 +644,7 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
         except Exception as e:
             return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        threading.Thread(target=ItemService.indexar_item, args=(item,), daemon=True).start()
+        threading.Thread(target=ItemService.procesar_item_subido, args=(item,), daemon=True).start()
 
         serializer = self.get_serializer(item)
         return Response(serializer.data, status=status.HTTP_201_CREATED)

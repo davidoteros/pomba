@@ -1,6 +1,7 @@
 import boto3
 from botocore.client import Config
 from storages.backends.s3 import S3Storage
+from storages.utils import clean_name
 from django.conf import settings
 
 # Al generar URLs presignadas con S3Storage estándar, boto3 firma la URL
@@ -33,8 +34,6 @@ class GarageStorage(S3Storage):
     """
 
     def url(self, name, parameters=None, expire=None, http_method=None):
-        from storages.utils import clean_name
-
         name = self._normalize_name(clean_name(name))
 
         if expire is None:

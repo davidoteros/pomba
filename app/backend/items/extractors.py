@@ -1,6 +1,13 @@
 import io
 import logging
 
+import mutagen
+from mutagen.flac import FLAC
+from mutagen.id3 import ID3FileType
+from mutagen.mp4 import MP4
+from mutagen.oggvorbis import OggVorbis
+from PIL import Image
+
 logger = logging.getLogger(__name__)
 
 #Pongo un límite de momento para indexar texto, pdfs los dejo para mas adelante
@@ -55,8 +62,6 @@ def _texto_plano(datos):
 
 
 def _imagen(datos):
-    from PIL import Image
-
     # IDs de tags EXIF que nos interesan
     TAGS_EXIF = {
         271  : 'camara_marca',
@@ -83,12 +88,6 @@ def _imagen(datos):
 
 
 def _audio(datos):
-    import mutagen
-    from mutagen.id3 import ID3FileType
-    from mutagen.mp4 import MP4
-    from mutagen.flac import FLAC
-    from mutagen.oggvorbis import OggVorbis
-
     metadatos = {}
 
     audio = mutagen.File(io.BytesIO(datos))

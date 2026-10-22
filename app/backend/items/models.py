@@ -30,6 +30,9 @@ class Item(models.Model):
     tamano_bytes = models.BigIntegerField(null=True, blank=True)
     mime_type = models.CharField(max_length=100, null=True, blank=True)
 
+    # Key en Garage de un PNG generado por el servidor para previsualizar tipos que no son seguros de servir tal cual (SVG).
+    preview_key = models.CharField(max_length=500, blank=True, default='')
+
     # --- METADATOS ---
     metadatos = models.JSONField(default=dict, blank=True)
 
@@ -58,6 +61,7 @@ class Item(models.Model):
             self.file = None
             self.tamano_bytes = None
             self.mime_type = None
+            self.preview_key = ''
 
         super().save(*args, **kwargs)
 

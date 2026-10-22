@@ -7,11 +7,12 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Instalamos librerías del sistema necesarias para psycopg, pillow, etc.
+# Instalamos librerías del sistema necesarias para psycopg, pillow, cairosvg, etc.
 RUN apt-get update && apt-get install -y \
     libpng-dev \
     libjpeg-dev \
     libpq-dev \
+    libcairo2 \
     gcc \
     curl \
     && rm -rf /var/lib/apt/lists/*

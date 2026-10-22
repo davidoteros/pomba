@@ -5,30 +5,29 @@ import uuid
 import zipfile
 
 import boto3
+import cairosvg
 from botocore.client import Config
 from botocore.exceptions import ClientError
-from django.utils import timezone
+from elasticsearch import Elasticsearch
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
-from .models import Item, ItemVersion
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
+from django.db.models import Exists, Max, OuterRef
+from django.utils import timezone
+from rest_framework.exceptions import ValidationError as DRFValidationError
+
 from .documents import ItemDocument
 from .extractors import extraer
-from elasticsearch.exceptions import NotFoundError
-from django.db import transaction
-from django.conf import settings
-from django.core.exceptions import ValidationError as DjangoValidationError
-from rest_framework.exceptions import ValidationError as DRFValidationError
-from django.db.models import Exists, OuterRef
+from .models import Item, ItemVersion
 
 logger = logging.getLogger(__name__)
 
 
-# Lista blanca de MIME que se pueden servir INLINE (abiertos dentro del navegador).
-# El mime_type lo pone el cliente al subir, así que nunca nos fiamos de prefijos:
-# tipos como image/svg+xml o text/html pueden ejecutar JavaScript al abrirse como
-# página (phishing con el nombre del dominio). Solo entra lo que es seguro mostrar.
+# Lista blanca de MIME que se pueden servir tal cual (abiertos dentro del navegador).
 MIME_PREVISUALIZABLES = frozenset({
-    # Imágenes (sin SVG: el SVG es texto y admite <script>)
+    # Imágenes (sin SVG: ya que es texto y admite <script>)
     'image/png', 'image/jpeg', 'image/gif', 'image/webp',
     'image/avif', 'image/bmp', 'image/x-ms-bmp',
     # Audio
@@ -42,6 +41,14 @@ MIME_PREVISUALIZABLES = frozenset({
 })
 
 
+
+MIME_CON_PREVIEW_GENERADA = frozenset({'image/svg+xml'})
+
+LIMITE_SVG_PREVIEW_BYTES = 2 * 1024 * 1024  # 2 MB
+ANCHO_PREVIEW_PNG = 1200
+PREVIEW_FALLIDA = '/fallida'
+
+
 def mime_previsualizable(mime_type):
     """
     Normaliza el mime_type (minúsculas y sin parámetros tras ';') y lo devuelve
@@ -50,6 +57,29 @@ def mime_previsualizable(mime_type):
     """
     limpio = (mime_type or '').split(';')[0].strip().lower()
     return limpio if limpio in MIME_PREVISUALIZABLES else None
+
+
+def mime_con_preview_generada(mime_type):
+    """True si el tipo se previsualiza mediante un PNG generado por el servidor."""
+    return (mime_type or '').split(';')[0].strip().lower() in MIME_CON_PREVIEW_GENERADA
+
+
+def tipo_visor(mime_type):
+    """
+    Con qué visor debe mostrarlo el frontend: 'imagen', 'audio', 'video', 'pdf' o None.
+    """
+    limpio = (mime_type or '').split(';')[0].strip().lower()
+    if limpio in MIME_CON_PREVIEW_GENERADA:
+        return 'imagen'
+    if limpio not in MIME_PREVISUALIZABLES:
+        return None
+    if limpio.startswith('audio/'):
+        return 'audio'
+    if limpio.startswith('video/'):
+        return 'video'
+    if limpio == 'application/pdf':
+        return 'pdf'
+    return 'imagen'
 
 
 class ItemService:
@@ -112,11 +142,17 @@ class ItemService:
     @staticmethod
     def get_s3_keys_for_items(items_qs):
         """
-        Extrae las keys de S3 de los items tipo archivo.
+        Extrae las keys de S3 de los items tipo archivo, incluidos los PNG de previsualización generados por el servidor.
         """
-        return list(
+        keys = list(
             items_qs.exclude(file="").exclude(file__isnull=True).values_list("file", flat=True)
         )
+        keys += list(
+            items_qs.exclude(preview_key="")
+            .exclude(preview_key=PREVIEW_FALLIDA)
+            .values_list("preview_key", flat=True)
+        )
+        return keys
     
     @staticmethod
     def delete_s3_keys(keys, bucket_name):
@@ -281,8 +317,6 @@ class ItemService:
 
     @staticmethod
     def buscar_items(usuario, q):
-        from elasticsearch import Elasticsearch
-
         es = Elasticsearch(**settings.ELASTICSEARCH_DSL['default'])
 
         must_extra, filter_extra, texto_libre = ItemService._parsear_query(q)
@@ -533,6 +567,37 @@ class ItemService:
         )
 
     @staticmethod
+    def generar_url_preview_generada(item):
+        """
+        Presigned URL del PNG que generó el servidor (item.preview_key).
+        Siempre image/png: el fichero original nunca se sirve inline.
+        """
+        if not item.preview_key or item.preview_key == PREVIEW_FALLIDA:
+            raise DRFValidationError({'detail': 'Tipo de archivo no previsualizable.'})
+
+        public_endpoint = getattr(settings, "GARAGE_PUBLIC_URL", settings.AWS_S3_ENDPOINT_URL)
+
+        client = boto3.client(
+            "s3",
+            endpoint_url=public_endpoint,
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            region_name=settings.AWS_S3_REGION_NAME,
+            config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+        )
+
+        return client.generate_presigned_url(
+            "get_object",
+            Params={
+                "Bucket": settings.AWS_STORAGE_BUCKET_NAME,
+                "Key": item.preview_key,
+                "ResponseContentDisposition": f'inline; filename="{item.nombre}.png"',
+                "ResponseContentType": "image/png",
+            },
+            ExpiresIn=300,
+        )
+
+    @staticmethod
     def recolectar_archivos_para_zip(root_ids, usuario):
         """
         Recorre el árbol de items y devuelve una lista de manteniendo la estructura de carpetas.
@@ -691,6 +756,59 @@ class ItemService:
             logger.warning("No se pudo indexar item %s: %s", item.id, e)
 
     @staticmethod
+    def procesar_item_subido(item):
+        """Trabajo posterior a la subida: indexar y vista previa."""
+        ItemService.indexar_item(item)
+        ItemService.generar_preview_png(item)
+
+    @staticmethod
+    def generar_preview_png(item):
+        """
+        Genera un PNG a partir de un item cuyo tipo no es seguro servir tal cual (SVG) y guarda su key en item.preview_key.
+        """
+        if item.tipo != Item.Tipo.ARCHIVO or not item.file:
+            return
+        if mime_previsualizable(item.mime_type) is not None:
+            return  # ya se puede servir tal cual, no hace falta convertirlo
+        if (item.mime_type or '').split(';')[0].strip().lower() not in MIME_CON_PREVIEW_GENERADA:
+            return
+
+        # limitamos el tamaño del SVG  para no bloquear la CPU del servidor.
+        if (item.tamano_bytes or 0) > LIMITE_SVG_PREVIEW_BYTES:
+            logger.info("SVG demasiado grande para previsualizar: item %s", item.id)
+            ItemService._marcar_preview_fallida(item)
+            return
+
+        try:
+            s3 = ItemService.get_s3_client()
+            obj = s3.get_object(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=str(item.file))
+            datos = obj['Body'].read()
+
+            png = cairosvg.svg2png(bytestring=datos, output_width=ANCHO_PREVIEW_PNG)
+
+            key = f"users/{item.usuario_id}/p/{uuid.uuid4().hex}.png"
+            s3.put_object(
+                Bucket=settings.AWS_STORAGE_BUCKET_NAME,
+                Key=key,
+                Body=png,
+                ContentType='image/png',
+            )
+            Item.objects.filter(pk=item.pk).update(preview_key=key)
+            item.preview_key = key
+        except Exception as e:
+            logger.warning("No se pudo generar preview de item %s: %s", item.id, e)
+            ItemService._marcar_preview_fallida(item)
+
+    @staticmethod
+    def _marcar_preview_fallida(item):
+        """
+        Deja constancia de que la conversión no saldrá, para poder distinguir
+        "todavía generándose" de "no la habrá nunca" al previsualizar.
+        """
+        Item.objects.filter(pk=item.pk).update(preview_key=PREVIEW_FALLIDA)
+        item.preview_key = PREVIEW_FALLIDA
+
+    @staticmethod
     def stream_zip(archivos_con_ruta, bucket_name):
         """
         Generador que emite el ZIP en chunks descargando un archivo de S3
@@ -756,7 +874,6 @@ class ItemService:
 
     @staticmethod
     def _siguiente_numero_version(item):
-        from django.db.models import Max
         ultimo = item.versiones.aggregate(Max('numero'))['numero__max'] or 0
         return ultimo + 1
 

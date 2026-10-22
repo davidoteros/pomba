@@ -5,14 +5,7 @@ import Dialog from 'primevue/dialog'
 
 const gestor = useGestorItems()
 
-const tipoPreview = computed(() => {
-  const mime = gestor.modal.payload?.item?.mime_type || ''
-  if (mime.startsWith('image/')) return 'imagen'
-  if (mime.startsWith('audio/')) return 'audio'
-  if (mime === 'video/mp4') return 'video'
-  if (mime === 'application/pdf') return 'pdf'
-  return null
-})
+const tipoPreview = computed(() => gestor.modal.payload?.item?.tipo_visor || null)
 </script>
 
 <template>
