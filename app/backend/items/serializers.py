@@ -1,11 +1,13 @@
 from rest_framework import serializers
 from .models import Item, ItemVersion
-from .services import ItemService
+from .services import ItemService, mime_previsualizable
 
 
 class ItemSerializer(serializers.ModelSerializer):
     tiene_hijos = serializers.BooleanField(read_only=True)
     file = serializers.FileField(allow_empty_file=True, required=False, allow_null=True)
+    # Fuente de verdad para saver si algo se puede previsualizar o no (Queremos evitar inyecciones)
+    previsualizable = serializers.SerializerMethodField()
 
     class Meta:
         model = Item
@@ -18,6 +20,7 @@ class ItemSerializer(serializers.ModelSerializer):
             "file",
             "tamano_bytes",
             "mime_type",
+            "previsualizable",
             "metadatos",
             "favorito",
             "eliminado",
@@ -36,6 +39,9 @@ class ItemSerializer(serializers.ModelSerializer):
             "fecha_creacion",
             "fecha_modificacion",
         ]
+
+    def get_previsualizable(self, obj):
+        return obj.tipo == Item.Tipo.ARCHIVO and mime_previsualizable(obj.mime_type) is not None
 
     # Hacemos una validación basica (Esto solo se llama cuando se hace post, put o patch)
     def validate_padre(self, value):

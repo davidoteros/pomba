@@ -23,6 +23,35 @@ from django.db.models import Exists, OuterRef
 logger = logging.getLogger(__name__)
 
 
+# Lista blanca de MIME que se pueden servir INLINE (abiertos dentro del navegador).
+# El mime_type lo pone el cliente al subir, así que nunca nos fiamos de prefijos:
+# tipos como image/svg+xml o text/html pueden ejecutar JavaScript al abrirse como
+# página (phishing con el nombre del dominio). Solo entra lo que es seguro mostrar.
+MIME_PREVISUALIZABLES = frozenset({
+    # Imágenes (sin SVG: el SVG es texto y admite <script>)
+    'image/png', 'image/jpeg', 'image/gif', 'image/webp',
+    'image/avif', 'image/bmp', 'image/x-ms-bmp',
+    # Audio
+    'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/wave',
+    'audio/ogg', 'audio/flac', 'audio/x-flac', 'audio/mp4', 'audio/aac',
+    'audio/webm', 'audio/opus',
+    # Vídeo
+    'video/mp4',
+    # Documentos
+    'application/pdf',
+})
+
+
+def mime_previsualizable(mime_type):
+    """
+    Normaliza el mime_type (minúsculas y sin parámetros tras ';') y lo devuelve
+    solo si está en la lista blanca; si no, devuelve None. Único sitio donde se
+    decide qué se puede abrir inline.
+    """
+    limpio = (mime_type or '').split(';')[0].strip().lower()
+    return limpio if limpio in MIME_PREVISUALIZABLES else None
+
+
 class ItemService:
     # =========================================================
     # SECCIÓN 1: Validaciones y auxiliares
@@ -470,6 +499,10 @@ class ItemService:
     @staticmethod
     def generar_url_preview(item):
         """Genera una presigned URL para previsualización (image, audio, PDF)."""
+        mime = mime_previsualizable(item.mime_type)
+        if mime is None:
+            raise DRFValidationError({'detail': 'Tipo de archivo no previsualizable.'})
+
         public_endpoint = getattr(settings, "GARAGE_PUBLIC_URL", settings.AWS_S3_ENDPOINT_URL)
 
         client = boto3.client(
@@ -488,9 +521,10 @@ class ItemService:
             "Bucket": settings.AWS_STORAGE_BUCKET_NAME,
             "Key": str(item.file),
             "ResponseContentDisposition": f'inline; filename="{item.nombre}"',
+            # Forzamos el tipo validado; nunca dejamos que Garage use la etiqueta
+            # que puso el cliente al subir.
+            "ResponseContentType": mime,
         }
-        if item.mime_type:
-            params["ResponseContentType"] = item.mime_type
 
         return client.generate_presigned_url(
             "get_object",
@@ -771,6 +805,10 @@ class ItemService:
     @staticmethod
     def generar_url_preview_version(version):
         """Presigned GET URL (inline) para reproducir una versión archivada directamente en el navegador."""
+        mime = mime_previsualizable(version.mime_type)
+        if mime is None:
+            raise DRFValidationError({'detail': 'Tipo de archivo no previsualizable.'})
+
         public_endpoint = getattr(settings, "GARAGE_PUBLIC_URL", settings.AWS_S3_ENDPOINT_URL)
         client = boto3.client(
             "s3",
@@ -784,9 +822,9 @@ class ItemService:
             "Bucket": settings.AWS_STORAGE_BUCKET_NAME,
             "Key": version.file,
             "ResponseContentDisposition": "inline",
+            # Tipo validado; no nos fiamos de la etiqueta del cliente.
+            "ResponseContentType": mime,
         }
-        if version.mime_type:
-            params["ResponseContentType"] = version.mime_type
         return client.generate_presigned_url("get_object", Params=params, ExpiresIn=300)
 
     @staticmethod

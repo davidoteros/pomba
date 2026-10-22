@@ -18,7 +18,7 @@ from rest_framework import serializers as drf_serializers
 from core.settings import development
 from .models import Item, ItemVersion
 from .serializers import ItemSerializer, ItemVersionSerializer
-from .services import ItemService
+from .services import ItemService, mime_previsualizable
 
 
 @extend_schema_view(
@@ -361,9 +361,7 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
                 {'detail': 'El elemento no es un archivo.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        mime = item.mime_type or ''
-        TIPOS_PREVISUALIZABLE = ('image/', 'audio/', 'application/pdf', 'video/mp4')
-        if not any(mime.startswith(t) for t in TIPOS_PREVISUALIZABLE):
+        if mime_previsualizable(item.mime_type) is None:
             return Response(
                 {'detail': 'Tipo de archivo no previsualizable.'},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -454,6 +452,13 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
         mime_type  = request.data.get('mime_type', '')
         if not key:
             return Response({'detail': 'key es obligatorio.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Las versiones son solo de audio: no permitimos convertir un audio en
+        # HTML/SVG declarando otro mime_type al confirmar.
+        if not (mime_type or '').split(';')[0].strip().lower().startswith('audio/'):
+            return Response(
+                {'detail': 'El control de versiones solo acepta archivos de audio.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         tamano = ItemService.validar_key_subida(request.user, key, subcarpeta='v/')
         item = ItemService.registrar_version(item, key, tamano, mime_type)
         threading.Thread(target=ItemService.indexar_item, args=(item,), daemon=True).start()
@@ -497,6 +502,11 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
             version = item.versiones.get(numero=int(num))
         except ItemVersion.DoesNotExist:
             return Response({'detail': 'Versión no encontrada.'}, status=status.HTTP_404_NOT_FOUND)
+        if mime_previsualizable(version.mime_type) is None:
+            return Response(
+                {'detail': 'Tipo de archivo no previsualizable.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         url = ItemService.generar_url_preview_version(version)
         return Response({'url': url})
 
