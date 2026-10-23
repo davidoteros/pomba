@@ -1,47 +1,50 @@
 # Makefile de Pomba: atajos de desarrollo y producción
 
+DC = docker compose --env-file "Docker/.env.development" -f "Docker/docker-compose.yml"
+DC_PROD = docker compose --env-file "Docker/.env.prod" -f "Docker/docker-compose.prod.yml"
+
 up:
 	@echo "🚀 Levantando servicios de Docker..."
-	docker compose --env-file "Docker/.env.development" -f "Docker/docker-compose.yml" up -d --wait
+	$(DC) up -d --wait
 	@echo "🐍 Preparando entorno local de Python..."
 	@chmod +x local_setup.sh
 	@./local_setup.sh
 
 down:
 	@echo "🛑 Parando servicios..."
-	docker compose -f "Docker/docker-compose.yml" down
+	$(DC) down
 
 build:
 	@echo "🛠️ Reconstruyendo imágenes de Docker..."
-	docker compose -f Docker/docker-compose.yml build --no-cache
+	$(DC) build --no-cache
 
 clean:
 	@echo "🧹 Limpieza profunda: borrando contenedores y volúmenes..."
-	docker compose -f Docker/docker-compose.yml down -v
+	$(DC) down -v
 
 
 up-prod:
 	@echo "🚀 Levantando stack de producción..."
-	docker compose --env-file "Docker/.env.prod" -f "Docker/docker-compose.prod.yml" up -d --wait
+	$(DC_PROD) up -d --wait
 
 down-prod:
 	@echo "🛑 Parando producción..."
-	docker compose -f "Docker/docker-compose.prod.yml" down
+	$(DC_PROD) down
 
 build-prod:
 	@echo "🛠️ Construyendo imágenes de producción..."
-	docker compose -f Docker/docker-compose.prod.yml build --no-cache
+	$(DC_PROD) build --no-cache
 
 clean-prod:
 	@echo "🧹 Borrando contenedores y volúmenes de producción..."
-	docker compose -f Docker/docker-compose.prod.yml down -v
+	$(DC_PROD) down -v
 
 
 # Configura Garage (layout, bucket y clave) y recrea el backend para que lea las nuevas claves
 setup-garage:
 	@chmod +x scripts/setup_infrastructure.sh
 	@./scripts/setup_infrastructure.sh
-	docker compose --env-file "Docker/.env.development" -f "Docker/docker-compose.yml" up -d --force-recreate --no-deps backend
+	$(DC) up -d --force-recreate --no-deps backend
 
 status:
 	@docker exec garage /garage status
