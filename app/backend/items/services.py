@@ -419,7 +419,6 @@ class ItemService:
         # Creo el item base
         item = Item(usuario=usuario, **datos)
 
-        print(datos)
         # Si es Carpeta
         if item.tipo == Item.Tipo.CARPETA:
             return ItemService.guardar_item(item)

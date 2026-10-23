@@ -1,4 +1,14 @@
+from django.core.exceptions import ImproperlyConfigured
+
 from .base import *
+
+
+#El contenedor no arranque a que arranque con firmas predecibles.
+if not SECRET_KEY:
+    raise ImproperlyConfigured(
+        'Falta la variable de entorno DJANGO_SECRET_KEY. '
+        'Genera una con: python -c "import secrets; print(secrets.token_urlsafe(50))"'
+    )
 
 # En producción nunca DEBUG=True - Django mostraría stack traces completos
 DEBUG = False

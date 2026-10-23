@@ -50,7 +50,7 @@ def extraer(datos: bytes, mime_type: str, tamano_bytes: int) -> dict:
         elif mime in MIMES_AUDIO:
             resultado['metadatos'] = _audio(datos)
     except Exception as e:
-        print(f"Error extrayendo datos (mime={mime_type}): {e}")
+        logger.warning("No se pudieron extraer datos (mime=%s): %s", mime_type, e)
 
 
     return resultado

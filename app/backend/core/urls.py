@@ -23,10 +23,6 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, Sp
 from users.views import LoginView, RegisterView
 
 urlpatterns = [
-    # Documentación
-    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
-    path('api/schema/swagger/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
-    path('api/schema/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
     # Autenticación
     path('api/auth/obtain_token/', LoginView.as_view(), name='token_obtain_pair'),
     path('api/auth/refresh_token/', TokenRefreshView.as_view(), name='token_refresh'),
@@ -34,5 +30,14 @@ urlpatterns = [
     path('api/items/', include('items.urls'))
 ]
 
+# El admin de Django solo en desarrollo.
 if settings.DEBUG:
     urlpatterns += [path('admin/', admin.site.urls)]
+
+
+if settings.EXPONER_API_SCHEMA:
+    urlpatterns += [
+        path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+        path('api/schema/swagger/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+        path('api/schema/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
+    ]

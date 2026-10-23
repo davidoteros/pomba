@@ -213,6 +213,9 @@ SPECTACULAR_SETTINGS = {
     'COMPONENT_SPLIT_REQUEST': True,
 }
 
+# Publicar el esquema OpenAPI (/api/schema/ y Swagger/Redoc). Desactivado por defecto
+EXPONER_API_SCHEMA = os.environ.get('EXPONER_API_SCHEMA', 'false').lower() == 'true'
+
 DRF_STANDARDIZED_ERRORS = {'ENABLE_IN_DEBUG_FOR_UNHANDLED_EXCEPTIONS': True}
 
 SIMPLE_JWT = {

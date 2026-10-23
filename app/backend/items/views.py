@@ -14,8 +14,8 @@ from django.db import transaction
 from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
 from rest_framework import serializers as drf_serializers
+from django.conf import settings
 
-from core.settings import development
 from .models import Item, ItemVersion
 from .serializers import ItemSerializer, ItemVersionSerializer
 from .services import ItemService, mime_previsualizable, mime_con_preview_generada, PREVIEW_FALLIDA
@@ -207,7 +207,7 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
             result = ItemService.eliminar_items_fisicos(
                 ids=ids,
                 usuario=request.user,
-                bucket_name=development.AWS_STORAGE_BUCKET_NAME,
+                bucket_name=settings.AWS_STORAGE_BUCKET_NAME,
             )
         except Exception as e:
             return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -317,7 +317,7 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
         try:
             result = ItemService.vaciar_papelera(
                 usuario=request.user,
-                bucket_name=development.AWS_STORAGE_BUCKET_NAME,
+                bucket_name=settings.AWS_STORAGE_BUCKET_NAME,
             )
         except Exception as e:
             return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -413,7 +413,7 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
             )
 
         response = StreamingHttpResponse(
-            ItemService.stream_zip(archivos_con_ruta, development.AWS_STORAGE_BUCKET_NAME),
+            ItemService.stream_zip(archivos_con_ruta, settings.AWS_STORAGE_BUCKET_NAME),
             content_type='application/zip',
         )
         response['Content-Disposition'] = 'attachment; filename="descarga.zip"'
@@ -543,7 +543,7 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
                 {'detail': 'No puedes eliminar la versión activa. Marca otra como actual primero.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        ItemService.eliminar_version(version, development.AWS_STORAGE_BUCKET_NAME)
+        ItemService.eliminar_version(version, settings.AWS_STORAGE_BUCKET_NAME)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     # =========================================================
