@@ -3,6 +3,7 @@ import logging
 import os
 import uuid
 import zipfile
+from datetime import timedelta
 
 import boto3
 import cairosvg
@@ -14,16 +15,41 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
-from django.db.models import Exists, Max, OuterRef
+from django.db.models import Exists, Max, OuterRef, Sum
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from .documents import ItemDocument
 from .extractors import extraer
-from .models import Item, ItemVersion
+from .models import Item, ItemVersion, SubidaPendiente
 
 logger = logging.getLogger(__name__)
 
+
+# =========================================================
+# CUOTA DE ALMACENAMIENTO
+# =========================================================
+# Las cifras viven en settings porque se configuran por entorno:
+# LIMITE_FICHERO_BYTES (la misma variable que el client_max_body_size de nginx)
+# y CUOTA_USUARIO_BYTES.
+
+class CuotaExcedida(Exception):
+    """
+    El usuario ha superado su cuota de subida.
+
+    Lleva el motivo para que la vista pueda decir si el problema es el fichero
+    concreto (demasiado grande) o la cuenta entera (sin espacio libre).
+    """
+
+    def __init__(self, mensaje, motivo):
+        super().__init__(mensaje)
+        self.mensaje = mensaje
+        self.motivo = motivo  # 'fichero' | 'cuota'
+
+
+# =========================================================
+# PREVISUALIZACIÓN
+# =========================================================
 
 # Lista blanca de MIME que se pueden servir tal cual (abiertos dentro del navegador).
 MIME_PREVISUALIZABLES = frozenset({
@@ -39,7 +65,6 @@ MIME_PREVISUALIZABLES = frozenset({
     # Documentos
     'application/pdf',
 })
-
 
 
 MIME_CON_PREVIEW_GENERADA = frozenset({'image/svg+xml'})
@@ -635,6 +660,65 @@ class ItemService:
 
         return resultado
 
+    # =====================================================
+    # Cuota de almacenamiento
+    # =====================================================
+
+    @staticmethod
+    def espacio_usado(usuario):
+        """
+        Bytes que el usuario ocupa de verdad en Garage.
+
+        Cuenta la papelera, porque un item eliminado sigue ocupando disco hasta que se vacía, y suma las versiones archivadas.
+        """
+        items = Item.objects.filter(
+            usuario=usuario, tipo=Item.Tipo.ARCHIVO,
+        ).aggregate(total=Sum('tamano_bytes'))['total'] or 0
+
+        versiones = ItemVersion.objects.filter(
+            item__usuario=usuario, es_actual=False,
+        ).aggregate(total=Sum('tamano_bytes'))['total'] or 0
+
+        return items + versiones
+
+    @staticmethod
+    def espacio_pendiente(usuario):
+        """
+        Bytes ya prometidos en pases de subida que aún no se han confirmado.
+
+        Hay que contarlos: el PUT presignado no pasa por Django, así que sin esto
+        se podrían pedir cientos de pases y llenar el disco sin confirmar ninguno,
+        con la base de datos creyendo que el usuario ocupa cero.
+        """
+        limite = timezone.now() - timedelta(minutes=settings.SUBIDA_PENDIENTE_MINUTOS)
+        return SubidaPendiente.objects.filter(
+            usuario=usuario, fecha_creacion__gte=limite,
+        ).aggregate(total=Sum('tamano_declarado'))['total'] or 0
+
+    @staticmethod
+    def comprobar_cuota(usuario, tamano_bytes):
+        """
+        Lanza CuotaExcedida si el fichero pasa del límite por fichero o si no cabe
+        en lo que le queda libre al usuario. Único sitio donde se decide esto.
+        """
+        if tamano_bytes > settings.LIMITE_FICHERO_BYTES:
+            raise CuotaExcedida(
+                f'El archivo supera el máximo de {settings.LIMITE_FICHERO_BYTES} bytes por fichero.',
+                motivo='fichero',
+            )
+
+        ocupado = ItemService.espacio_usado(usuario) + ItemService.espacio_pendiente(usuario)
+        if ocupado + tamano_bytes > settings.CUOTA_USUARIO_BYTES:
+            libre = max(settings.CUOTA_USUARIO_BYTES - ocupado, 0)
+            raise CuotaExcedida(
+                f'Sin espacio: quedan {libre} bytes libres de {settings.CUOTA_USUARIO_BYTES}.',
+                motivo='cuota',
+            )
+
+    # =====================================================
+    # Subida presignada
+    # =====================================================
+
     @staticmethod
     def generar_url_presignada_subida(key):
         """
@@ -662,21 +746,51 @@ class ItemService:
                 'Bucket': settings.AWS_STORAGE_BUCKET_NAME,
                 'Key': key,
             },
-            ExpiresIn=3600,
+            # Corto a propósito: el pase sirve para una subida que empieza ya, no para
+            # guardarlo y usarlo una hora después.
+            ExpiresIn=900,
             HttpMethod='PUT',
         )
 
     @staticmethod
-    def validar_key_subida(usuario, key, subcarpeta=''):
+    def entregar_pase_subida(usuario, nombre, tamano_bytes, item=None):
         """
-        Comprueba que la key pertenece al usuario, que no está ya registrada y que
-        el fichero existe en Garage. Devuelve el tamaño real del objeto.
+        Comprueba la cuota, apunta la subida pendiente y devuelve (url, key).
         """
-        prefijo = f"users/{usuario.id}/{subcarpeta}"
-        resto = key[len(prefijo):]
-        if not key.startswith(prefijo) or not resto or '/' in resto or '..' in key:
+        tamano_bytes = int(tamano_bytes)
+        ItemService.comprobar_cuota(usuario, tamano_bytes)
+
+        _, extension = os.path.splitext(nombre)
+        subcarpeta = 'v/' if item is not None else ''
+        key = f"files/{subcarpeta}{uuid.uuid4().hex}{extension}"
+
+        SubidaPendiente.objects.create(
+            key=key,
+            usuario=usuario,
+            item=item,
+            tamano_declarado=tamano_bytes,
+        )
+        return ItemService.generar_url_presignada_subida(key), key
+
+    @staticmethod
+    def validar_key_subida(usuario, key, item=None):
+        """
+        Comprueba que esta key es un pase que el servidor entregó a este usuario
+        (y a este item, si es una versión), que no ha caducado y que el fichero
+        está en Garage. Devuelve el tamaño real y consume el pase.
+
+        El tamaño real manda sobre el declarado: el PUT no pasa por Django, así que
+        se puede declarar 1 byte y subir 2 GB. Si pasa eso, se borra el objeto.
+        """
+        limite = timezone.now() - timedelta(minutes=settings.SUBIDA_PENDIENTE_MINUTOS)
+        pendiente = SubidaPendiente.objects.filter(
+            key=key, usuario=usuario, item=item, fecha_creacion__gte=limite,
+        ).first()
+        if pendiente is None:
             raise DRFValidationError({'key': 'Key no válida.'})
 
+        # El pase se borra al confirmar, así que una key ya
+        # registrada no debería llegar hasta aquí nunca.
         if Item.objects.filter(file=key).exists() or ItemVersion.objects.filter(file=key).exists():
             raise DRFValidationError({'key': 'Key ya registrada.'})
 
@@ -687,7 +801,33 @@ class ItemService:
         except ClientError:
             raise DRFValidationError({'key': 'El archivo no se ha subido.'})
 
-        return cabecera['ContentLength']
+        tamano_real = cabecera['ContentLength']
+
+        if tamano_real > pendiente.tamano_declarado:
+            ItemService._borrar_objeto(key)
+            pendiente.delete()
+            raise DRFValidationError(
+                {'key': 'El archivo subido es mayor que el tamaño declarado.'}
+            )
+
+        pendiente.delete()
+        try:
+            ItemService.comprobar_cuota(usuario, tamano_real)
+        except CuotaExcedida:
+            ItemService._borrar_objeto(key)
+            raise
+
+        return tamano_real
+
+    @staticmethod
+    def _borrar_objeto(key):
+        """Borra un objeto de Garage sin romper si ya no está."""
+        try:
+            ItemService.get_s3_client().delete_object(
+                Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=key
+            )
+        except ClientError:
+            logger.warning("No se pudo borrar el objeto huérfano %r", key)
 
     @staticmethod
     def registrar_item_subido(usuario, nombre, padre, key, tamano_bytes, mime_type):
@@ -877,12 +1017,19 @@ class ItemService:
         return ultimo + 1
 
     @staticmethod
-    def generar_url_presignada_version(item):
-        """Genera una presigned PUT URL para subir una nueva versión. El archivo se guarda en la subcarpeta para distinguirlo de la versión activa."""
-        ext = os.path.splitext(str(item.file))[1]
-        key = f"users/{item.usuario.id}/v/{uuid.uuid4().hex}{ext}"
-        url = ItemService.generar_url_presignada_subida(key)
-        return url, key
+    def generar_url_presignada_version(item, tamano_bytes):
+        """
+        Genera una presigned PUT URL para subir una nueva versión de un item.
+
+        La key va en la subcarpeta `v/` para distinguirla de la versión activa, y el
+        pase queda atado al item: así una pendiente de otro item no sirve aquí.
+        """
+        return ItemService.entregar_pase_subida(
+            usuario=item.usuario,
+            nombre=str(item.file),
+            tamano_bytes=tamano_bytes,
+            item=item,
+        )
 
     @staticmethod
     def registrar_version(item, key, tamano_bytes, mime_type):

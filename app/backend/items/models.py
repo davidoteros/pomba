@@ -94,3 +94,36 @@ class ItemVersion(models.Model):
         indexes = [
             models.Index(fields=['item', 'numero'], name='idx_version_item_numero'),
         ]
+
+class SubidaPendiente(models.Model):
+    """
+    Pase de subida que el servidor ha entregado y todavía no se ha confirmado.
+
+    El PUT presignado va del navegador a Garage sin pasar por Django, así que al
+    confirmar no basta con que la key "parezca" del usuario: hay que poder demostrar
+    que la entregó el servidor, a ese usuario y hace poco. Esta tabla es ese registro.
+    El tamaño declarado permite además cobrar la cuota en el momento de entregar el
+    pase, no al confirmar: si no, se podría llenar el disco sin confirmar nada.
+    """
+    key = models.CharField(max_length=500, unique=True)
+    usuario = models.ForeignKey(User, on_delete=models.CASCADE, related_name="subidas_pendientes")
+
+    # Solo para versiones: el item al que pertenece la versión que se está subiendo.
+    item = models.ForeignKey(
+        Item,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="subidas_pendientes",
+    )
+
+    tamano_declarado = models.BigIntegerField()
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.key} ({self.usuario})"
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["usuario", "fecha_creacion"], name="idx_pendientes_usuario"),
+        ]

@@ -227,9 +227,9 @@ export const useGestorItems = defineStore('items', {
     // 3. Notifica al backend para que registre el archivo en la base de datos
     async _subirArchivoPresignado(file, padreId) {
       const mimeType = file.type || 'application/octet-stream'
-      const { url_subida, key } = await apiItems.solicitarSubida(file.name, mimeType)
+      const { url_subida, key } = await apiItems.solicitarSubida(file.name, mimeType, file.size)
       await apiItems.subirDirecto(url_subida, file, mimeType)
-      await apiItems.confirmarSubida(file.name, key, padreId, file.size, mimeType)
+      await apiItems.confirmarSubida(file.name, key, padreId, mimeType)
     },
 
     async subirArchivo(file, padreId = null) {
@@ -651,9 +651,9 @@ export const useGestorItems = defineStore('items', {
       })
       try {
         const mimeType = file.type || 'application/octet-stream'
-        const { url_subida, key } = await apiItems.solicitarSubidaVersion(itemId)
+        const { url_subida, key } = await apiItems.solicitarSubidaVersion(itemId, file.size)
         await apiItems.subirDirecto(url_subida, file, mimeType)
-        const itemActualizado = await apiItems.confirmarSubidaVersion(itemId, key, file.size, mimeType)
+        const itemActualizado = await apiItems.confirmarSubidaVersion(itemId, key, mimeType)
         this.actualizarItemsLocal([itemId], itemActualizado)
         this.actualizarNotificacion(NOTIF_ID, {
           tipo: 'exito',

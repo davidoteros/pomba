@@ -24,8 +24,13 @@ export const apiItems = {
 
   // Pide al backend que genere una URL presignada para subir directamente al bucket.
   // Devuelve { url_subida, key } donde key es la ruta del objeto en el bucket.
-  async solicitarSubida(nombre, mimeType) {
-    const { data } = await api.post('items/solicitar_subida/', { nombre, mime_type: mimeType })
+  // El tamaño va aquí porque el backend comprueba la cuota antes de firmar la URL.
+  async solicitarSubida(nombre, mimeType, tamanoBytes) {
+    const { data } = await api.post('items/solicitar_subida/', {
+      nombre,
+      mime_type: mimeType,
+      tamano_bytes: tamanoBytes,
+    })
     return data
   },
 
@@ -33,12 +38,12 @@ export const apiItems = {
     await axios.put(urlSubida, file, { headers: { 'Content-Type': mimeType } })
   },
 
-  async confirmarSubida(nombre, key, padreId, tamanoBytes, mimeType) {
+  // El tamaño no se manda: el backend lo lee de Garage al confirmar (head_object).
+  async confirmarSubida(nombre, key, padreId, mimeType) {
     await api.post('items/confirmar_subida/', {
       nombre,
       key,
       padre: padreId,
-      tamano_bytes: tamanoBytes,
       mime_type: mimeType,
     })
   },
@@ -99,15 +104,16 @@ export const apiItems = {
     return data
   },
 
-  async solicitarSubidaVersion(itemId) {
-    const { data } = await api.post(`items/${itemId}/versiones/solicitar_subida/`)
+  async solicitarSubidaVersion(itemId, tamanoBytes) {
+    const { data } = await api.post(`items/${itemId}/versiones/solicitar_subida/`, {
+      tamano_bytes: tamanoBytes,
+    })
     return data
   },
 
-  async confirmarSubidaVersion(itemId, key, tamanoBytes, mimeType) {
+  async confirmarSubidaVersion(itemId, key, mimeType) {
     const { data } = await api.post(`items/${itemId}/versiones/confirmar_subida/`, {
       key,
-      tamano_bytes: tamanoBytes,
       mime_type: mimeType,
     })
     return data

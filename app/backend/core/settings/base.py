@@ -2,6 +2,8 @@ from datetime import timedelta
 from pathlib import Path
 import os
 
+from django.core.exceptions import ImproperlyConfigured
+
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
@@ -232,6 +234,62 @@ SIMPLE_JWT = {
 # Archivos por encima de este tamaño se escriben en disco temporal en lugar de RAM.
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024 # 10 MB
 DATA_UPLOAD_MAX_MEMORY_SIZE = 500 * 1024 * 1024 # 500 MB - red de seguridad para subidas multipart (aunque esta desactivado por si acaso lo dejo)
+
+# Limites de las subidas presignadas
+# Se comprueban al pedir la URL presignada y otra vez al confirmar, con el tamaño real.
+
+_SUFIJOS_TAMANO = {'k': 1024, 'm': 1024 ** 2, 'g': 1024 ** 3}
+
+
+def tamano_a_bytes(valor, variable):
+    """
+    Convierte un tamaño con sufijo de nginx ('2g', '25m', '512k') a bytes.
+
+    Existe para que el limite por fichero se escriba una sola vez, en la variable
+    POMBA_LIMITE_FICHERO: nginx la usa tal cual en client_max_body_size 
+    y aqui se traduce a bytes. Asi las dos capas que vigilan
+    el mismo limite no pueden desincronizarse.
+
+    Si el valor no es valido, falla al arrancar.
+    """
+    original = valor
+    valor = str(valor).strip().lower()
+    multiplicador = _SUFIJOS_TAMANO.get(valor[-1:], 1)
+    if multiplicador > 1:
+        valor = valor[:-1]
+
+    if not (valor.isascii() and valor.isdigit()):
+        raise ImproperlyConfigured(
+            f'{variable}={original!r} no es un tamaño válido. '
+            'Escribe un número entero seguido de k, m o g (por ejemplo 2g, 500m, '
+            '512k), o el número de bytes sin letra (1048576). '
+            'Es la misma variable que usa nginx en client_max_body_size, '
+            'así que debe llevar un formato que los dos entiendan.'
+        )
+
+    bytes_totales = int(valor) * multiplicador
+
+    # Un limite de 0 dejaria el servicio inservible en silencio: ninguna subida,
+    # ni de 1 byte, pasaria la comprobacion de cuota.
+    if bytes_totales == 0:
+        raise ImproperlyConfigured(
+            f'{variable}={original!r} deja el límite en 0 bytes, '
+            'con lo que no se podría subir ningún archivo.'
+        )
+
+    return bytes_totales
+
+
+# La misma variable que nginx pone en el client_max_body_size del :3900.
+LIMITE_FICHERO_BYTES = tamano_a_bytes(
+    os.environ.get('POMBA_LIMITE_FICHERO') or '2g', 'POMBA_LIMITE_FICHERO',
+)
+
+# Cuota total por usuario. Solo la usa Django: nginx no sabe de usuarios ni de cuotas.
+CUOTA_USUARIO_BYTES = int(os.environ.get('CUOTA_USUARIO_BYTES', 20 * 1024 ** 3))    # 20 GB
+
+# Margen de vida de una subida pendiente.
+SUBIDA_PENDIENTE_MINUTOS = int(os.environ.get('SUBIDA_PENDIENTE_MINUTOS', 60))
 
 # =========================================================
 # LOCALIZACIÓN

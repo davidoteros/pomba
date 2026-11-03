@@ -91,3 +91,47 @@ class ItemVersionSerializer(serializers.ModelSerializer):
     class Meta:
         model  = ItemVersion
         fields = ['id', 'numero', 'tamano_bytes', 'mime_type', 'metadatos', 'es_actual', 'fecha_creacion']
+
+
+# =========================================================
+# SUBIDA PRESIGNADA
+# =========================================================
+# El tamaño es obligatorio al pedir el pase: la cuota se cobra antes de firmar la  URL, porque el PUT va del navegador a Garage sin pasar por Django.
+
+class SolicitarSubidaSerializer(serializers.Serializer):
+    nombre = serializers.CharField(max_length=255, trim_whitespace=True)
+    tamano_bytes = serializers.IntegerField(min_value=0)
+    mime_type = serializers.CharField(max_length=100, required=False, default='application/octet-stream')
+
+
+class ConfirmarSubidaSerializer(serializers.Serializer):
+    nombre = serializers.CharField(max_length=255, trim_whitespace=True)
+    key = serializers.CharField(max_length=500, trim_whitespace=True)
+    padre = serializers.PrimaryKeyRelatedField(
+        queryset=Item.objects.all(), required=False, allow_null=True, default=None,
+    )
+    mime_type = serializers.CharField(max_length=100, required=False, default='application/octet-stream')
+
+    def validate_padre(self, value):
+        """La carpeta destino tiene que ser del usuario, ser carpeta y no estar en papelera."""
+        if value is None:
+            return value
+        usuario = self.context['request'].user
+        if value.usuario_id != usuario.id or value.tipo != Item.Tipo.CARPETA or value.eliminado:
+            raise serializers.ValidationError("Carpeta padre no encontrada.")
+        return value
+
+
+class VersionSolicitarSubidaSerializer(serializers.Serializer):
+    tamano_bytes = serializers.IntegerField(min_value=0)
+
+
+class VersionConfirmarSubidaSerializer(serializers.Serializer):
+    key = serializers.CharField(max_length=500, trim_whitespace=True)
+    mime_type = serializers.CharField(max_length=100)
+
+    def validate_mime_type(self, value):
+        """Las versiones son solo de audio: no permitimos convertir un audio en HTML/SVG al confirmar."""
+        if not value.split(';')[0].strip().lower().startswith('audio/'):
+            raise serializers.ValidationError("El control de versiones solo acepta archivos de audio.")
+        return value

@@ -9,7 +9,11 @@ server {
     listen 3900;
     server_name localhost;
 
-    client_max_body_size 0;
+    # Tope duro por fichero subido a Garage: es la unica capa que el cliente no puede
+    # esquivar, porque el PUT presignado no pasa por Django.
+    # El valor lo pone envsubst desde POMBA_LIMITE_FICHERO al arrancar: la misma
+    # variable que lee Django, para que no puedan desincronizarse.
+    client_max_body_size ${POMBA_LIMITE_FICHERO};
 
     # Preflight CORS
     location / {
@@ -41,8 +45,8 @@ server {
     listen 80;
     server_name localhost;
 
-    # Quitamos limite de tamaño ya que esto es un gestor de archivos y estaba teniendo problemas
-    client_max_body_size 0;
+    # El /api/ solo recibe JSON y la foto de perfil: los ficheros van por :3900 a Garage.
+    client_max_body_size ${POMBA_LIMITE_API};
 
     location / {
         proxy_pass http://frontend:5173;

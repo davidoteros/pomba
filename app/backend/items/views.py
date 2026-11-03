@@ -1,6 +1,4 @@
-import os
 import threading
-import uuid
 
 from rest_framework import status
 from rest_framework.mixins import ListModelMixin, CreateModelMixin
@@ -17,8 +15,33 @@ from rest_framework import serializers as drf_serializers
 from django.conf import settings
 
 from .models import Item, ItemVersion
-from .serializers import ItemSerializer, ItemVersionSerializer
-from .services import ItemService, mime_previsualizable, mime_con_preview_generada, PREVIEW_FALLIDA
+from .serializers import (
+    ConfirmarSubidaSerializer,
+    ItemSerializer,
+    ItemVersionSerializer,
+    SolicitarSubidaSerializer,
+    VersionConfirmarSubidaSerializer,
+    VersionSolicitarSubidaSerializer,
+)
+from .services import (
+    CuotaExcedida,
+    ItemService,
+    mime_previsualizable,
+    mime_con_preview_generada,
+    PREVIEW_FALLIDA,
+)
+
+
+def respuesta_cuota(error):
+    """
+    Traduce CuotaExcedida a 413, el mismo código con el que nginx corta un fichero
+    demasiado grande, para que el frontend tenga un solo caso que tratar. El campo
+    `motivo` distingue si el problema es el fichero o la cuenta.
+    """
+    return Response(
+        {'detail': error.mensaje, 'motivo': error.motivo},
+        status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+    )
 
 
 @extend_schema_view(
@@ -440,7 +463,7 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
         return Response({'versiones': serializer.data, 'numero_actual': numero_actual})
 
     @extend_schema(
-        request=None,
+        request=VersionSolicitarSubidaSerializer,
         responses=inline_serializer('VersionesSolicitarSubidaResponse', fields={
             'url_subida': drf_serializers.URLField(),
             'key': drf_serializers.CharField(),
@@ -454,33 +477,39 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
                 {'detail': 'El control de versiones solo está disponible para archivos de audio.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        url_subida, key = ItemService.generar_url_presignada_version(item)
+
+        datos = VersionSolicitarSubidaSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+
+        try:
+            url_subida, key = ItemService.generar_url_presignada_version(
+                item, datos.validated_data['tamano_bytes'],
+            )
+        except CuotaExcedida as e:
+            return respuesta_cuota(e)
+
         return Response({'url_subida': url_subida, 'key': key})
 
     @extend_schema(
-        request=inline_serializer('VersionesConfirmarSubidaRequest', fields={
-            'key': drf_serializers.CharField(),
-            'tamano_bytes': drf_serializers.IntegerField(required=False),
-            'mime_type': drf_serializers.CharField(required=False),
-        }),
+        request=VersionConfirmarSubidaSerializer,
         responses=ItemSerializer,
     )
     @action(detail=True, methods=['post'], url_path='versiones/confirmar_subida', url_name='versiones-confirmar')
     def versiones_confirmar_subida(self, request, pk=None):
-        item       = self.get_object()
-        key        = request.data.get('key', '').strip()
-        mime_type  = request.data.get('mime_type', '')
-        if not key:
-            return Response({'detail': 'key es obligatorio.'}, status=status.HTTP_400_BAD_REQUEST)
-        # Las versiones son solo de audio: no permitimos convertir un audio en
-        # HTML/SVG declarando otro mime_type al confirmar.
-        if not (mime_type or '').split(';')[0].strip().lower().startswith('audio/'):
-            return Response(
-                {'detail': 'El control de versiones solo acepta archivos de audio.'},
-                status=status.HTTP_400_BAD_REQUEST,
+        item = self.get_object()
+        datos = VersionConfirmarSubidaSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+
+        try:
+            tamano = ItemService.validar_key_subida(
+                request.user, datos.validated_data['key'], item=item,
             )
-        tamano = ItemService.validar_key_subida(request.user, key, subcarpeta='v/')
-        item = ItemService.registrar_version(item, key, tamano, mime_type)
+        except CuotaExcedida as e:
+            return respuesta_cuota(e)
+
+        item = ItemService.registrar_version(
+            item, datos.validated_data['key'], tamano, datos.validated_data['mime_type'],
+        )
         threading.Thread(target=ItemService.indexar_item, args=(item,), daemon=True).start()
         return Response(ItemSerializer(item, context={'request': request}).data)
 
@@ -580,10 +609,7 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
     # =========================================================
 
     @extend_schema(
-        request=inline_serializer('SolicitarSubidaRequest', fields={
-            'nombre': drf_serializers.CharField(),
-            'mime_type': drf_serializers.CharField(required=False),
-        }),
+        request=SolicitarSubidaSerializer,
         responses=inline_serializer('SolicitarSubidaResponse', fields={
             'url_subida': drf_serializers.URLField(),
             'key': drf_serializers.CharField(),
@@ -591,55 +617,42 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
     )
     @action(detail=False, methods=['post'])
     def solicitar_subida(self, request):
-        nombre = request.data.get('nombre', '').strip()
-        mime_type = request.data.get('mime_type', 'application/octet-stream')
+        datos = SolicitarSubidaSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
 
-        if not nombre:
-            return Response({'detail': 'El nombre es obligatorio.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            url_subida, key = ItemService.entregar_pase_subida(
+                usuario=request.user,
+                nombre=datos.validated_data['nombre'],
+                tamano_bytes=datos.validated_data['tamano_bytes'],
+            )
+        except CuotaExcedida as e:
+            return respuesta_cuota(e)
 
-        _, extension = os.path.splitext(nombre)
-        key = f"users/{request.user.id}/{uuid.uuid4().hex}{extension}"
-
-        url_subida = ItemService.generar_url_presignada_subida(key)
         return Response({'url_subida': url_subida, 'key': key})
 
     @extend_schema(
-        request=inline_serializer('ConfirmarSubidaRequest', fields={
-            'nombre': drf_serializers.CharField(),
-            'key': drf_serializers.CharField(),
-            'padre': drf_serializers.IntegerField(required=False, allow_null=True),
-            'tamano_bytes': drf_serializers.IntegerField(required=False),
-            'mime_type': drf_serializers.CharField(required=False),
-        }),
+        request=ConfirmarSubidaSerializer,
         responses={201: ItemSerializer},
     )
     @action(detail=False, methods=['post'])
     def confirmar_subida(self, request):
-        nombre = request.data.get('nombre', '').strip()
-        key = request.data.get('key', '').strip()
-        padre_id = request.data.get('padre', None)
-        mime_type = request.data.get('mime_type', 'application/octet-stream')
+        datos = ConfirmarSubidaSerializer(data=request.data, context={'request': request})
+        datos.is_valid(raise_exception=True)
 
-        if not nombre or not key:
-            return Response({'detail': 'nombre y key son obligatorios.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        tamano_bytes = ItemService.validar_key_subida(request.user, key)
-
-        padre = None
-        if padre_id:
-            try:
-                padre = Item.objects.get(id=padre_id, usuario=request.user, tipo='carpeta', eliminado=False)
-            except Item.DoesNotExist:
-                return Response({'detail': 'Carpeta padre no encontrada.'}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            tamano_bytes = ItemService.validar_key_subida(request.user, datos.validated_data['key'])
+        except CuotaExcedida as e:
+            return respuesta_cuota(e)
 
         try:
             item = ItemService.registrar_item_subido(
                 usuario=request.user,
-                nombre=nombre,
-                padre=padre,
-                key=key,
+                nombre=datos.validated_data['nombre'],
+                padre=datos.validated_data['padre'],
+                key=datos.validated_data['key'],
                 tamano_bytes=tamano_bytes,
-                mime_type=mime_type,
+                mime_type=datos.validated_data['mime_type'],
             )
         except Exception as e:
             return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
