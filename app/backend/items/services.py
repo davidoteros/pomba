@@ -29,9 +29,8 @@ logger = logging.getLogger(__name__)
 # =========================================================
 # CUOTA DE ALMACENAMIENTO
 # =========================================================
-# Las cifras viven en settings porque se configuran por entorno:
-# LIMITE_FICHERO_BYTES (la misma variable que el client_max_body_size de nginx)
-# y CUOTA_USUARIO_BYTES.
+# Las cifras viven en settings porque se configuran por entorno
+
 
 class CuotaExcedida(Exception):
     """
