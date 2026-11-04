@@ -15,8 +15,6 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
 
-    # Tope duro por fichero subido a Garage: es la unica capa que el cliente no puede
-    # esquivar, porque el PUT presignado no pasa por Django.
     # El valor lo pone envsubst desde POMBA_LIMITE_FICHERO al arrancar: la misma
     # variable que lee Django, para que no puedan desincronizarse.
     client_max_body_size ${POMBA_LIMITE_FICHERO};
@@ -59,9 +57,11 @@ server {
 # -------------------------------------------------------
 # Puerto 443: app principal con SSL
 # -------------------------------------------------------
+# Solo pomba.me: www es otro origen (otras cookies y CORS) y redirige en el bloque de abajo.
+# Este va primero para seguir siendo el servidor por defecto del 443.
 server {
     listen 443 ssl;
-    server_name pomba.me www.pomba.me;
+    server_name pomba.me;
 
     ssl_certificate     /etc/letsencrypt/live/pomba.me/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/pomba.me/privkey.pem;
@@ -97,4 +97,20 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
+}
+
+# -------------------------------------------------------
+# Puerto 443: www redirige a pomba.me (necesita que el certificado incluya www)
+# -------------------------------------------------------
+server {
+    listen 443 ssl;
+    server_name www.pomba.me;
+
+    ssl_certificate     /etc/letsencrypt/live/pomba.me/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/pomba.me/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    return 301 https://pomba.me$request_uri;
 }

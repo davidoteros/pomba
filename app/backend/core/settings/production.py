@@ -14,7 +14,7 @@ if not SECRET_KEY:
 DEBUG = False
 
 # Django solo responde a peticiones dirigidas a estos dominios.
-ALLOWED_HOSTS = ['pomba.me', 'www.pomba.me']
+ALLOWED_HOSTS = ['pomba.me']
 
 # Orígenes permitidos para hacer peticiones AJAX/fetch desde el navegador.
 CORS_ALLOWED_ORIGINS = [
@@ -24,7 +24,6 @@ CORS_ALLOWED_ORIGINS = [
 # Django rechaza cualquier POST/PUT/DELETE cuyo header Origin no esté aquí.
 CSRF_TRUSTED_ORIGINS = [
     'https://pomba.me',
-    'https://www.pomba.me',
 ]
 
 # Redirigimos automáticamente cualquier petición HTTP a HTTPS.
