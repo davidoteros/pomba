@@ -12,7 +12,6 @@ from botocore.exceptions import ClientError
 from elasticsearch import Elasticsearch
 
 from django.conf import settings
-from django.core.exceptions import ValidationError
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Exists, Max, OuterRef, Sum
@@ -449,7 +448,7 @@ class ItemService:
         
         # Si es Archivo
         if not fichero:
-            raise ValidationError("Archivo requerido")
+            raise DjangoValidationError("Archivo requerido")
         
         # Guardo el fichero real en Garage a través de Django
         item.file = fichero
@@ -463,7 +462,7 @@ class ItemService:
     @staticmethod
     def mover_item(item, nueva_carpeta_padre):
         if ItemService.check_cycle(item, nueva_carpeta_padre):
-            raise ValidationError("No puedes crear ciclos")
+            raise DjangoValidationError("No puedes crear ciclos")
 
         item.padre = nueva_carpeta_padre
 
@@ -521,147 +520,8 @@ class ItemService:
         return item.favorito
 
     # =========================================================
-    # SECCIÓN 5: Descarga de archivos
+    # SECCIÓN 5: Cuota de almacenamiento
     # =========================================================
-
-    @staticmethod
-    def generar_url_descarga(item):
-        """
-        Genera una presigned URL para descarga directa de un único archivo.
-        """
-        public_endpoint = getattr(settings, "GARAGE_PUBLIC_URL", settings.AWS_S3_ENDPOINT_URL)
-
-        client = boto3.client(
-            "s3",
-            endpoint_url=public_endpoint,
-            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-            region_name=settings.AWS_S3_REGION_NAME,
-            config=Config(
-                signature_version="s3v4",
-                s3={"addressing_style": "path"},
-            ),
-        )
-
-        return client.generate_presigned_url(
-            "get_object",
-            Params={
-                "Bucket": settings.AWS_STORAGE_BUCKET_NAME,
-                "Key": str(item.file),
-                "ResponseContentDisposition": f'attachment; filename="{item.nombre}"',
-            },
-            ExpiresIn=300,
-        )
-
-    @staticmethod
-    def generar_url_preview(item):
-        """Genera una presigned URL para previsualización (image, audio, PDF)."""
-        mime = mime_previsualizable(item.mime_type)
-        if mime is None:
-            raise DRFValidationError({'detail': 'Tipo de archivo no previsualizable.'})
-
-        public_endpoint = getattr(settings, "GARAGE_PUBLIC_URL", settings.AWS_S3_ENDPOINT_URL)
-
-        client = boto3.client(
-            "s3",
-            endpoint_url=public_endpoint,
-            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-            region_name=settings.AWS_S3_REGION_NAME,
-            config=Config(
-                signature_version="s3v4",
-                s3={"addressing_style": "path"},
-            ),
-        )
-
-        params = {
-            "Bucket": settings.AWS_STORAGE_BUCKET_NAME,
-            "Key": str(item.file),
-            "ResponseContentDisposition": f'inline; filename="{item.nombre}"',
-            # Forzamos el tipo validado; nunca dejamos que Garage use la etiqueta
-            # que puso el cliente al subir.
-            "ResponseContentType": mime,
-        }
-
-        return client.generate_presigned_url(
-            "get_object",
-            Params=params,
-            ExpiresIn=300,
-        )
-
-    @staticmethod
-    def generar_url_preview_generada(item):
-        """
-        Presigned URL del PNG que generó el servidor (item.preview_key).
-        Siempre image/png: el fichero original nunca se sirve inline.
-        """
-        if not item.preview_key or item.preview_key == PREVIEW_FALLIDA:
-            raise DRFValidationError({'detail': 'Tipo de archivo no previsualizable.'})
-
-        public_endpoint = getattr(settings, "GARAGE_PUBLIC_URL", settings.AWS_S3_ENDPOINT_URL)
-
-        client = boto3.client(
-            "s3",
-            endpoint_url=public_endpoint,
-            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-            region_name=settings.AWS_S3_REGION_NAME,
-            config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
-        )
-
-        return client.generate_presigned_url(
-            "get_object",
-            Params={
-                "Bucket": settings.AWS_STORAGE_BUCKET_NAME,
-                "Key": item.preview_key,
-                "ResponseContentDisposition": f'inline; filename="{item.nombre}.png"',
-                "ResponseContentType": "image/png",
-            },
-            ExpiresIn=300,
-        )
-
-    @staticmethod
-    def recolectar_archivos_para_zip(root_ids, usuario):
-        """
-        Recorre el árbol de items y devuelve una lista de manteniendo la estructura de carpetas.
-        """
-        resultado = []
-        pendientes = {int(i): "" for i in root_ids}
-
-        while pendientes:
-            items = Item.objects.filter(
-                id__in=list(pendientes.keys()),
-                usuario=usuario,
-                eliminado=False,
-            )
-            carpetas_con_prefijo = {}
-
-            for item in items:
-                prefijo = pendientes[item.id]
-                if item.tipo == Item.Tipo.ARCHIVO:
-                    resultado.append((item, prefijo + item.nombre))
-                elif item.tipo == Item.Tipo.CARPETA:
-                    carpetas_con_prefijo[item.id] = prefijo + item.nombre + "/"
-
-            if not carpetas_con_prefijo:
-                break
-
-            hijos = Item.objects.filter(
-                padre_id__in=carpetas_con_prefijo.keys(),
-                usuario=usuario,
-                eliminado=False,
-            ).values("id", "padre_id")
-
-            pendientes = {
-                hijo["id"]: carpetas_con_prefijo[hijo["padre_id"]]
-                for hijo in hijos
-            }
-
-        return resultado
-
-    # =====================================================
-    # Cuota de almacenamiento
-    # =====================================================
 
     @staticmethod
     def espacio_usado(usuario):
@@ -714,9 +574,9 @@ class ItemService:
                 motivo='cuota',
             )
 
-    # =====================================================
-    # Subida presignada
-    # =====================================================
+    # =========================================================
+    # SECCIÓN 6: Subida de archivos
+    # =========================================================
 
     @staticmethod
     def generar_url_presignada_subida(key):
@@ -855,6 +715,10 @@ class ItemService:
                 )
         return item
 
+    # =========================================================
+    # SECCIÓN 7: Procesado posterior a la subida (índice y vista previa)
+    # =========================================================
+
     # Si el archivo es pequeño, lo descarga de S3 para extraer metadatos; si es demasiado grande lo ignora.
     _LIMITE_DESCARGA_BYTES = {
         'audio': 100 * 1024 * 1024,  # 100 MB
@@ -946,6 +810,145 @@ class ItemService:
         Item.objects.filter(pk=item.pk).update(preview_key=PREVIEW_FALLIDA)
         item.preview_key = PREVIEW_FALLIDA
 
+    # =========================================================
+    # SECCIÓN 8: Descarga de archivos
+    # =========================================================
+
+    @staticmethod
+    def generar_url_descarga(item):
+        """
+        Genera una presigned URL para descarga directa de un único archivo.
+        """
+        public_endpoint = getattr(settings, "GARAGE_PUBLIC_URL", settings.AWS_S3_ENDPOINT_URL)
+
+        client = boto3.client(
+            "s3",
+            endpoint_url=public_endpoint,
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            region_name=settings.AWS_S3_REGION_NAME,
+            config=Config(
+                signature_version="s3v4",
+                s3={"addressing_style": "path"},
+            ),
+        )
+
+        return client.generate_presigned_url(
+            "get_object",
+            Params={
+                "Bucket": settings.AWS_STORAGE_BUCKET_NAME,
+                "Key": str(item.file),
+                "ResponseContentDisposition": f'attachment; filename="{item.nombre}"',
+            },
+            ExpiresIn=300,
+        )
+
+    @staticmethod
+    def generar_url_preview(item):
+        """Genera una presigned URL para previsualización (image, audio, PDF)."""
+        mime = mime_previsualizable(item.mime_type)
+        if mime is None:
+            raise DRFValidationError({'detail': 'Tipo de archivo no previsualizable.'})
+
+        public_endpoint = getattr(settings, "GARAGE_PUBLIC_URL", settings.AWS_S3_ENDPOINT_URL)
+
+        client = boto3.client(
+            "s3",
+            endpoint_url=public_endpoint,
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            region_name=settings.AWS_S3_REGION_NAME,
+            config=Config(
+                signature_version="s3v4",
+                s3={"addressing_style": "path"},
+            ),
+        )
+
+        params = {
+            "Bucket": settings.AWS_STORAGE_BUCKET_NAME,
+            "Key": str(item.file),
+            "ResponseContentDisposition": f'inline; filename="{item.nombre}"',
+            # Forzamos el tipo validado; nunca dejamos que Garage use la etiqueta
+            # que puso el cliente al subir.
+            "ResponseContentType": mime,
+        }
+
+        return client.generate_presigned_url(
+            "get_object",
+            Params=params,
+            ExpiresIn=300,
+        )
+
+    @staticmethod
+    def generar_url_preview_generada(item):
+        """
+        Presigned URL del PNG que generó el servidor (item.preview_key).
+        Siempre image/png: el fichero original nunca se sirve inline.
+        """
+        if not item.preview_key or item.preview_key == PREVIEW_FALLIDA:
+            raise DRFValidationError({'detail': 'Tipo de archivo no previsualizable.'})
+
+        public_endpoint = getattr(settings, "GARAGE_PUBLIC_URL", settings.AWS_S3_ENDPOINT_URL)
+
+        client = boto3.client(
+            "s3",
+            endpoint_url=public_endpoint,
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            region_name=settings.AWS_S3_REGION_NAME,
+            config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+        )
+
+        return client.generate_presigned_url(
+            "get_object",
+            Params={
+                "Bucket": settings.AWS_STORAGE_BUCKET_NAME,
+                "Key": item.preview_key,
+                "ResponseContentDisposition": f'inline; filename="{item.nombre}.png"',
+                "ResponseContentType": "image/png",
+            },
+            ExpiresIn=300,
+        )
+
+    @staticmethod
+    def recolectar_archivos_para_zip(root_ids, usuario):
+        """
+        Recorre el árbol de items y devuelve una lista de manteniendo la estructura de carpetas.
+        """
+        resultado = []
+        pendientes = {int(i): "" for i in root_ids}
+
+        while pendientes:
+            items = Item.objects.filter(
+                id__in=list(pendientes.keys()),
+                usuario=usuario,
+                eliminado=False,
+            )
+            carpetas_con_prefijo = {}
+
+            for item in items:
+                prefijo = pendientes[item.id]
+                if item.tipo == Item.Tipo.ARCHIVO:
+                    resultado.append((item, prefijo + item.nombre))
+                elif item.tipo == Item.Tipo.CARPETA:
+                    carpetas_con_prefijo[item.id] = prefijo + item.nombre + "/"
+
+            if not carpetas_con_prefijo:
+                break
+
+            hijos = Item.objects.filter(
+                padre_id__in=carpetas_con_prefijo.keys(),
+                usuario=usuario,
+                eliminado=False,
+            ).values("id", "padre_id")
+
+            pendientes = {
+                hijo["id"]: carpetas_con_prefijo[hijo["padre_id"]]
+                for hijo in hijos
+            }
+
+        return resultado
+
     @staticmethod
     def stream_zip(archivos_con_ruta, bucket_name):
         """
@@ -1003,7 +1006,7 @@ class ItemService:
         yield from buf.pop()
 
     # =========================================================
-    # SECCIÓN 6: Control de versiones (solo audio)
+    # SECCIÓN 9: Control de versiones (solo audio)
     # =========================================================
 
     @staticmethod
