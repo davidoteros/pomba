@@ -1,4 +1,8 @@
+from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from rest_framework import generics, status
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
@@ -8,6 +12,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_view, inline_seri
 from rest_framework import serializers as drf_serializers
 
 from .serializers import (
+    LoginSerializer,
     UserSerializer,
     UserProfileSerializer,
     UpdateProfileSerializer,
@@ -16,10 +21,53 @@ from .serializers import (
 )
 
 
-# Login con límite de intentos por IP para frenar el adivinado de contraseñas
-class LoginView(TokenObtainPairView):
+# Login con JWT (temporal)
+class LoginJWTView(TokenObtainPairView):
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'login'
+
+
+# Entrega la cookie csrftoken
+@method_decorator(ensure_csrf_cookie, name='dispatch')
+class CsrfView(APIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(request=None, responses={204: None})
+    def get(self, request):
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# Login con sesión y límite de intentos por IP.
+# csrf_protect porque DRF no comprueba CSRF sin sesión iniciada (login CSRF).
+@method_decorator(csrf_protect, name='dispatch')
+class LoginView(APIView):
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'login'
+
+    @extend_schema(request=LoginSerializer, responses=UserProfileSerializer)
+    def post(self, request):
+        serializador = LoginSerializer(data=request.data)
+        serializador.is_valid(raise_exception=True)
+        usuario = authenticate(
+            request,
+            email=serializador.validated_data['email'],
+            password=serializador.validated_data['password'],
+        )
+        if usuario is None:
+            raise AuthenticationFailed('Email o contraseña incorrectos.')
+        login(request, usuario)
+        return Response(UserProfileSerializer(usuario, context={"request": request}).data)
+
+
+# AllowAny: cerrar una sesión ya caducada no da error
+class LogoutView(APIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(request=None, responses={204: None})
+    def post(self, request):
+        logout(request)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @extend_schema_view(
@@ -58,6 +106,7 @@ class MeView(APIView):
     def delete(self, request):
         usuario = request.user
         usuario.delete()
+        logout(request)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -78,6 +127,8 @@ class ChangePasswordView(APIView):
         serializador.is_valid(raise_exception=True)
         request.user.set_password(serializador.validated_data["password_nuevo"])
         request.user.save()
+        # Mantiene la sesión actual; las demás se cierran
+        update_session_auth_hash(request, request.user)
         return Response({"detail": "Contraseña actualizada correctamente."})
 
 

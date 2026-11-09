@@ -7,6 +7,12 @@ from drf_spectacular.utils import extend_schema_field
 Usuario = get_user_model()
 
 
+class LoginSerializer(serializers.Serializer):
+    """Datos del login con sesión."""
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True, trim_whitespace=False)
+
+
 class UserSerializer(serializers.ModelSerializer):
     # Evito que se devuelva en el JSON de respuesta
     password = serializers.CharField(write_only=True)

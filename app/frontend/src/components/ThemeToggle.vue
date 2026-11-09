@@ -2,8 +2,9 @@
 import { ref, onMounted } from "vue";
 import Button from "primevue/button";
 import { apiUsers } from "@/api/users";
-import { authService } from "@/api/auth";
+import { useUserStore } from "@/stores/user";
 
+const userStore = useUserStore();
 const isDark = ref(false);
 
 const applyTheme = (dark) => {
@@ -14,7 +15,7 @@ const applyTheme = (dark) => {
 const toggleDark = async () => {
   isDark.value = !isDark.value;
   applyTheme(isDark.value);
-  if (authService.isLoggedIn()) {
+  if (userStore.autenticado) {
     await apiUsers.guardarTema(isDark.value ? "oscuro" : "claro");
   }
 };

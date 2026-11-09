@@ -1,7 +1,6 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { authService } from '@/api/auth'
 import { useGestorItems } from '@/stores/items'
 import { useUserStore } from '@/stores/user'
 import SettingsModal from '@/components/modals/SettingsModal.vue'
@@ -65,8 +64,6 @@ watch(textoBusqueda, (valor) => {
   }, 400)
 })
 
-onMounted(userStore.cargarPerfil)
-
 
 // === MENU DE USUARIO (ESCRITORIO) =========================
 const menuUsuario = ref()
@@ -95,8 +92,8 @@ function toggleMenuUsuario(evento) {
   menuUsuario.value.toggle(evento)
 }
 
-function cerrarSesion() {
-  authService.logout()
+async function cerrarSesion() {
+  await userStore.cerrarSesion()
   router.push('/')
 }
 

@@ -192,7 +192,6 @@ import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { apiUsers } from '@/api/users'
 import { getErrorMessage } from '@/utils/errors'
-import { authService } from '@/api/auth'
 import { useUserStore } from '@/stores/user'
 
 import Dialog from 'primevue/dialog'
@@ -321,7 +320,8 @@ const eliminarCuenta = async () => {
   errorEliminar.value = ''
   try {
     await apiUsers.eliminarCuenta()
-    authService.logout()
+    // El backend ya cerró la sesión
+    userStore.olvidarSesion()
     router.push('/')
   } catch (e) {
     errorEliminar.value = getErrorMessage(e)

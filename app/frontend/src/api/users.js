@@ -3,8 +3,8 @@ import api from './axios';
 export const apiUsers = {
 
   /* Devuelve el perfil del usuario autenticado */
-  async obtenerPerfil() {
-    const { data } = await api.get('user/me/');
+  async obtenerPerfil(config) {
+    const { data } = await api.get('user/me/', config);
     return data;
   },
 

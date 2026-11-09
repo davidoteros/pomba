@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { authService } from '@/api/auth'
+import { useUserStore } from '@/stores/user'
 import Login from './views/Login.vue'
 import Home from './views/Home.vue'
 import Register from './views/Register.vue'
@@ -42,22 +42,27 @@ const router = createRouter({
 })
 
 
-router.beforeEach((to, from, next) => {
-  const loggedIn = authService.isLoggedIn()
+router.beforeEach(async (to) => {
+  const userStore = useUserStore()
+
+  // La primera vez se pregunta a Django si hay sesión
+  if (!userStore.sesionComprobada) {
+    await userStore.comprobarSesion()
+  }
+
+  const loggedIn = userStore.autenticado
 
   const isAuthRoute = to.meta.requiresAuth
 
   // No logueado intentando entrar a zona privada
   if (isAuthRoute && !loggedIn) {
-    return next('/')
+    return '/'
   }
 
   // Logueado intentando ir a login/register
   if (loggedIn && (to.path === '/' || to.path === '/register')) {
-    return next('/home')
+    return '/home'
   }
-
-  next()
 })
 
 export default router

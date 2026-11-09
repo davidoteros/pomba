@@ -9,6 +9,9 @@ python manage.py migrate --noinput
 echo "Creando tabla de caché..."
 python manage.py createcachetable
 
+echo "Borrando sesiones caducadas..."
+python manage.py clearsessions
+
 echo "Recopilando ficheros estáticos..."
 python manage.py collectstatic --noinput
 

@@ -24,5 +24,8 @@ python manage.py migrate --noinput
 echo "🗄️ Creando tabla de caché..."
 python manage.py createcachetable
 
+echo "🧹 Borrando sesiones caducadas..."
+python manage.py clearsessions
+
 echo "🚀 Iniciando servidor de desarrollo..."
 exec python manage.py runserver 0.0.0.0:8000

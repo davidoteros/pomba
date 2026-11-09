@@ -1,71 +1,26 @@
 import axios from 'axios';
 import router from '@/router'
+import { useUserStore } from '@/stores/user'
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api/';
 
+// Axios copia la cookie csrftoken en la cabecera X-CSRFToken (solo a nuestro origen)
 const api = axios.create({
   baseURL: BASE_URL,
   headers: { 'Content-Type': 'application/json' },
+  xsrfCookieName: 'csrftoken',
+  xsrfHeaderName: 'X-CSRFToken',
 });
 
-const publicRoutes = [
-  'auth/obtain_token/',
-  'auth/refresh_token/',
-  'user/register/'
-]
-
-// 1. INTERCEPTOR DE PETICIÓN: Añadir el token automáticamente
-api.interceptors.request.use((config) => {
-  // Comprobamos si la URL actual coincide con alguna ruta pública
-  const isPublic = publicRoutes.some(route => config.url?.includes(route));
-
-  if (!isPublic) {
-    const token = localStorage.getItem('access_token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-  }
-
-  return config;
-});
-
-
-// 2. INTERCEPTOR DE RESPUESTA: Manejar el refresh
+// Sesión caducada: vuelta al login. Las de comprobarSesion las decide el guard del router
 api.interceptors.response.use(
   (response) => response,
-  async (error) => {
-    const originalRequest = error.config;
-    const url = originalRequest.url || '';
+  (error) => {
+    const codigo = error.response?.data?.errors?.[0]?.code;
 
-    //Si es publica no queremos que reintente nada
-    const isPublic = publicRoutes.some(route => url.includes(route));
-
-    // Si es 401 y no es un reintento
-    if (error.response?.status === 401 && !originalRequest._retry && !isPublic) {
-      originalRequest._retry = true;
-
-      try {
-        const refreshToken = localStorage.getItem('refresh_token');
-        if (!refreshToken) throw new Error("No hay refresh token");
-
-        // Usamos una instancia limpia de axios para evitar bucles infinitos si esta petición también falla
-        const { data } = await axios.post(`${BASE_URL}auth/refresh_token/`, {
-          refresh: refreshToken
-        });
-
-        localStorage.setItem('access_token', data.access);
-        
-        // Reintentamos la petición original con el nuevo token
-        originalRequest.headers['Authorization'] = `Bearer ${data.access}`;
-        return api(originalRequest);
-
-      } catch (refreshError) {
-        console.error("Sesión expirada. Redirigiendo...");
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
-        router.push('/'); 
-        return Promise.reject(refreshError);
-      }
+    if (codigo === 'not_authenticated' && !error.config?.comprobarSesion) {
+      useUserStore().olvidarSesion();
+      router.push('/');
     }
 
     return Promise.reject(error);

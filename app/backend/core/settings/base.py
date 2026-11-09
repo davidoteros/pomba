@@ -183,6 +183,7 @@ AUTH_PASSWORD_VALIDATORS = [
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
@@ -226,6 +227,19 @@ SIMPLE_JWT = {
     'ROTATE_REFRESH_TOKENS': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
+
+# =========================================================
+# SESIONES
+# =========================================================
+
+# 7 días desde el login, se use o no la app.
+SESSION_COOKIE_AGE = 7 * 24 * 60 * 60
+# El JS no puede leer la cookie de sesión.
+SESSION_COOKIE_HTTPONLY = True
+# No se envían en POST/PUT/DELETE iniciados desde otra web.
+SESSION_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SAMESITE = 'Lax'
+# CSRF_COOKIE_HTTPONLY sigue en False: el frontend lee csrftoken.
 
 # =========================================================
 # SUBIDA DE ARCHIVOS

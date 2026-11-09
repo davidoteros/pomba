@@ -8,10 +8,11 @@ import Button from 'primevue/button'
 import Message from 'primevue/message'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import PombaLogo from '@/components/PombaLogo.vue'
-import { authService } from '@/api/auth'
+import { useUserStore } from '@/stores/user'
 import { getErrorMessage } from '@/utils/errors'
 
 const router = useRouter()
+const userStore = useUserStore()
 
 const loading = ref(false)
 const errorApi = ref('')
@@ -36,7 +37,7 @@ const onFormSubmit = async (event) => {
   loading.value = true
   errorApi.value = ''
   try {
-    await authService.login(event.states.email.value.trim(), event.states.password.value)
+    await userStore.iniciarSesion(event.states.email.value.trim(), event.states.password.value)
     router.push('/home')
   } catch (error) {
     errorApi.value = getErrorMessage(error) || 'El correo o la contraseña no son correctos.'

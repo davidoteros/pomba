@@ -3,6 +3,7 @@ import {createPinia} from 'pinia'
 import './style.css'
 import App from './App.vue'
 import router from './router.js'
+import { authService } from './api/auth'
 
 import PrimeVue from 'primevue/config'
 import Aura from '@primeuix/themes/aura'
@@ -87,4 +88,8 @@ app.use(PrimeVue, {
 });
 app.use(pinia)
 app.use(router)
-app.mount('#app')
+
+// csrftoken antes del primer POST; si el backend falla, se monta igual
+authService.obtenerCsrf()
+    .catch(() => {})
+    .finally(() => app.mount('#app'))

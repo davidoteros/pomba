@@ -9,9 +9,11 @@ import Message from 'primevue/message'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import PombaLogo from '@/components/PombaLogo.vue'
 import { authService } from '@/api/auth'
+import { useUserStore } from '@/stores/user'
 import { getErrorMessage } from '@/utils/errors'
 
 const router = useRouter()
+const userStore = useUserStore()
 
 const loading = ref(false)
 const registroExitoso = ref(false)
@@ -56,7 +58,7 @@ const onFormSubmit = async (event) => {
     )
     registroExitoso.value = true
     setTimeout(async () => {
-      await authService.login(states.email.value.trim(), states.password.value)
+      await userStore.iniciarSesion(states.email.value.trim(), states.password.value)
       router.push('/home')
     }, 1500)
   } catch (error) {
