@@ -1,4 +1,3 @@
-from datetime import timedelta
 from pathlib import Path
 import os
 
@@ -31,8 +30,6 @@ LOCAL_APPS = [
 
 THIRD_PARTY_APPS = [
     'rest_framework',
-    'rest_framework_simplejwt',
-    'corsheaders',
     'storages',
     'django_elasticsearch_dsl',
     'drf_standardized_errors',
@@ -46,7 +43,6 @@ INSTALLED_APPS = DJANGO_APPS + LOCAL_APPS + THIRD_PARTY_APPS
 # =========================================================
 
 MIDDLEWARE = [
-    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -177,12 +173,11 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 # =========================================================
-# REST FRAMEWORK / JWT
+# REST FRAMEWORK
 # =========================================================
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
@@ -220,13 +215,6 @@ SPECTACULAR_SETTINGS = {
 EXPONER_API_SCHEMA = os.environ.get('EXPONER_API_SCHEMA', 'false').lower() == 'true'
 
 DRF_STANDARDIZED_ERRORS = {'ENABLE_IN_DEBUG_FOR_UNHANDLED_EXCEPTIONS': True}
-
-SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=2),
-    'ROTATE_REFRESH_TOKENS': True,
-    'AUTH_HEADER_TYPES': ('Bearer',),
-}
 
 # =========================================================
 # SESIONES

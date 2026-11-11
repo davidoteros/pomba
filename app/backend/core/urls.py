@@ -17,19 +17,15 @@ Including another URLconf
 from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
-from rest_framework_simplejwt.views import TokenRefreshView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
 
-from users.views import CsrfView, LoginJWTView, LoginView, LogoutView
+from users.views import CsrfView, LoginView, LogoutView
 
 urlpatterns = [
     # Autenticación
     path('api/auth/csrf/', CsrfView.as_view(), name='csrf'),
     path('api/auth/login/', LoginView.as_view(), name='login'),
     path('api/auth/logout/', LogoutView.as_view(), name='logout'),
-    # JWT (temporal)
-    path('api/auth/obtain_token/', LoginJWTView.as_view(), name='token_obtain_pair'),
-    path('api/auth/refresh_token/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/user/', include('users.urls')),
     path('api/items/', include('items.urls'))
 ]

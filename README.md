@@ -2,7 +2,7 @@
 
 **Pomba** es una plataforma web de almacenamiento personal de ficheros, diseñada como alternativa libre y privada a servicios como Google Drive o Dropbox. Permite a los usuarios guardar, organizar y gestionar sus documentos, imágenes y archivos de audio desde el navegador, sin depender de terceros que puedan hacer uso de sus datos.
 
-El sistema ofrece autenticación segura con JWT, gestión de ficheros en carpetas, previsualización de contenido (PDF, imágenes y audio) y un motor de búsqueda basado en Elasticsearch que permite localizar archivos por nombre, tipo o metadatos. El almacenamiento se realiza mediante **Garage**, un sistema compatible con el protocolo S3.
+El sistema ofrece autenticación con sesiones de Django (cookie HttpOnly y token CSRF), gestión de ficheros en carpetas, previsualización de contenido (PDF, imágenes y audio) y un motor de búsqueda basado en Elasticsearch que permite localizar archivos por nombre, tipo o metadatos. El almacenamiento se realiza mediante **Garage**, un sistema compatible con el protocolo S3.
 
 Una de las funcionalidades más destacadas es el **control de versiones de ficheros de audio**, orientado a músicos, que permite comparar y recuperar versiones previas de cualquier canción o proyecto musical.
 

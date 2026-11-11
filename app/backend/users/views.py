@@ -7,7 +7,6 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
-from rest_framework_simplejwt.views import TokenObtainPairView
 from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer
 from rest_framework import serializers as drf_serializers
 
@@ -19,12 +18,6 @@ from .serializers import (
     ChangePasswordSerializer,
     ProfilePhotoSerializer,
 )
-
-
-# Login con JWT (temporal)
-class LoginJWTView(TokenObtainPairView):
-    throttle_classes = [ScopedRateThrottle]
-    throttle_scope = 'login'
 
 
 # Entrega la cookie csrftoken
