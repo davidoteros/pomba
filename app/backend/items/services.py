@@ -45,6 +45,10 @@ class CuotaExcedida(Exception):
         self.motivo = motivo  # 'fichero' | 'cuota'
 
 
+class BorradoGarageFallido(Exception):
+    """Garage no pudo borrar alguna key."""
+
+
 # =========================================================
 # PREVISUALIZACIÓN
 # =========================================================
@@ -176,7 +180,15 @@ class ItemService:
             .values_list("preview_key", flat=True)
         )
         return keys
-    
+
+    @staticmethod
+    def claves_del_usuario(usuario):
+        """Todas las keys de Garage de un usuario: items (papelera incluida), previews, versiones y subidas a medias."""
+        claves = ItemService.get_s3_keys_for_items(Item.objects.filter(usuario=usuario))
+        claves += ItemVersion.objects.filter(item__usuario=usuario).values_list('file', flat=True)
+        claves += SubidaPendiente.objects.filter(usuario=usuario).values_list('key', flat=True)
+        return sorted(set(claves))
+
     @staticmethod
     def delete_s3_keys(keys, bucket_name):
         if not keys:
@@ -186,13 +198,16 @@ class ItemService:
 
         for i in range(0, len(keys), 1000):
             batch = keys[i:i + 1000]
-            s3.delete_objects(
+            respuesta = s3.delete_objects(
                 Bucket=bucket_name,
                 Delete={
                     "Objects": [{"Key": key} for key in batch],
                     "Quiet": True,
                 }
             )
+            errores = [e for e in respuesta.get("Errors", []) if e.get("Code") != "NoSuchKey"]
+            if errores:
+                raise BorradoGarageFallido(f"{len(errores)} keys sin borrar en Garage")
 
     @staticmethod
     def eliminar_items_fisicos(ids, usuario, bucket_name):

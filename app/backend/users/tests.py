@@ -1,9 +1,14 @@
+from unittest import mock
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.sessions.backends.db import SessionStore
 from django.core.cache import cache
 from django.test import TestCase
+from django_elasticsearch_dsl.registries import registry
 from rest_framework.test import APIClient
+
+from items.models import Item, ItemVersion, SubidaPendiente
 
 Usuario = get_user_model()
 
@@ -160,3 +165,76 @@ class SesionesTests(TestCase):
         cliente = self.cliente()
         respuesta = cliente.post('/api/auth/logout/', HTTP_X_CSRFTOKEN=self.csrf(cliente))
         self.assertEqual(respuesta.status_code, 204)
+
+
+
+# Garage y Elasticsearch son los de desarrollo: se sustituyen por falsos para no tocar datos reales
+@mock.patch.object(registry, 'delete_related')
+@mock.patch.object(registry, 'update_related')
+@mock.patch.object(registry, 'update')
+@mock.patch.object(registry, 'delete')
+@mock.patch('items.services.ItemService.get_s3_client')
+class BorrarCuentaTests(TestCase):
+    """Borrar la cuenta borra sus ficheros de Garage y sus documentos de Elasticsearch."""
+
+    def setUp(self):
+        self.usuario = Usuario.objects.create_user(email=EMAIL, password=PASSWORD)
+        self.cliente = APIClient()
+        self.cliente.force_login(self.usuario)
+
+    def crear_datos(self):
+        u = self.usuario
+        archivo = Item.Tipo.ARCHIVO
+        carpeta = Item.objects.create(usuario=u, nombre='carpeta', tipo=Item.Tipo.CARPETA)
+        Item.objects.create(usuario=u, nombre='a.txt', tipo=archivo, padre=carpeta, file='files/a.txt')
+        Item.objects.create(usuario=u, nombre='b.txt', tipo=archivo, file='files/b.txt', eliminado=True)
+        Item.objects.create(usuario=u, nombre='c.svg', tipo=archivo, file='files/c.svg', preview_key='users/1/p/c.png')
+        audio = Item.objects.create(usuario=u, nombre='d.mp3', tipo=archivo, file='files/d.mp3')
+        ItemVersion.objects.create(item=audio, numero=1, file='files/d.mp3', tamano_bytes=1)
+        ItemVersion.objects.create(item=audio, numero=2, file='files/v/e.mp3', tamano_bytes=1, es_actual=True)
+        SubidaPendiente.objects.create(key='files/f.bin', usuario=u, tamano_declarado=1)
+        Usuario.objects.filter(pk=u.pk).update(foto_perfil='avatares/g.png')
+        self.usuario.refresh_from_db()
+        return set(Item.objects.filter(usuario=u).values_list('pk', flat=True))
+
+    def borrar(self):
+        return self.cliente.delete('/api/user/me/')
+
+    def claves_borradas(self, s3):
+        llamadas = s3.return_value.delete_objects.call_args_list
+        return {o['Key'] for c in llamadas for o in c.kwargs['Delete']['Objects']}
+
+    def test_borra_garage_y_elasticsearch(self, s3, es_delete, *_):
+        s3.return_value.delete_objects.return_value = {}
+        # El id se apunta al momento: Django lo pone a None tras borrar
+        borrados_es = set()
+        es_delete.side_effect = lambda obj, **_: isinstance(obj, Item) and borrados_es.add(obj.pk)
+        ids = self.crear_datos()
+        self.assertEqual(self.borrar().status_code, 204)
+        self.assertEqual(self.claves_borradas(s3), {
+            'files/a.txt', 'files/b.txt', 'files/c.svg', 'users/1/p/c.png',
+            'files/d.mp3', 'files/v/e.mp3', 'files/f.bin', 'avatares/g.png',
+        })
+        self.assertFalse(Usuario.objects.filter(pk=self.usuario.pk).exists())
+        # Cada item que cae en cascada avisa a Elasticsearch
+        self.assertEqual(borrados_es, ids)
+
+    def test_si_garage_falla_no_borra_la_cuenta(self, s3, *_):
+        s3.return_value.delete_objects.return_value = {
+            'Errors': [{'Key': 'files/a.txt', 'Code': 'InternalError'}],
+        }
+        self.crear_datos()
+        with self.assertLogs('users.views', level='ERROR'):
+            respuesta = self.borrar()
+        self.assertEqual(respuesta.status_code, 503)
+        self.assertTrue(Usuario.objects.filter(pk=self.usuario.pk).exists())
+        self.assertEqual(Item.objects.filter(usuario=self.usuario).count(), 5)
+
+    def test_key_que_ya_no_existe_cuenta_como_borrada(self, s3, *_):
+        # Un reintento no se atasca por lo que ya se borró en el primer intento
+        s3.return_value.delete_objects.return_value = {
+            'Errors': [{'Key': 'files/a.txt', 'Code': 'NoSuchKey'}],
+        }
+        self.crear_datos()
+        self.assertEqual(self.borrar().status_code, 204)
+        self.assertFalse(Usuario.objects.filter(pk=self.usuario.pk).exists())

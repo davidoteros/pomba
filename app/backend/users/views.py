@@ -1,3 +1,7 @@
+import logging
+
+from botocore.exceptions import BotoCoreError, ClientError
+from django.conf import settings
 from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
@@ -10,6 +14,8 @@ from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer
 from rest_framework import serializers as drf_serializers
 
+from items.services import BorradoGarageFallido, ItemService
+
 from .serializers import (
     LoginSerializer,
     UserSerializer,
@@ -18,6 +24,8 @@ from .serializers import (
     ChangePasswordSerializer,
     ProfilePhotoSerializer,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # Entrega la cookie csrftoken
@@ -95,9 +103,22 @@ class MeView(APIView):
         serializador.save()
         return Response(UserProfileSerializer(request.user, context={"request": request}).data)
 
-    @extend_schema(request=None, responses={204: None})
+    @extend_schema(request=None, responses={204: None, 503: None})
     def delete(self, request):
         usuario = request.user
+        # Garage primero: si falla, la cuenta sigue entera y se puede reintentar
+        claves = ItemService.claves_del_usuario(usuario)
+        if usuario.foto_perfil:
+            claves.append(usuario.foto_perfil.name)
+        try:
+            ItemService.delete_s3_keys(claves, settings.AWS_STORAGE_BUCKET_NAME)
+        except (BorradoGarageFallido, BotoCoreError, ClientError):
+            logger.exception("No se pudieron borrar de Garage los ficheros del usuario %s", usuario.pk)
+            return Response(
+                {"detail": "No se pudo borrar la cuenta. Inténtalo de nuevo."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        # Elasticsearch se limpia solo con las señales de django-elasticsearch-dsl
         usuario.delete()
         logout(request)
         return Response(status=status.HTTP_204_NO_CONTENT)
