@@ -573,6 +573,11 @@ class ItemService:
         ).aggregate(total=Sum('tamano_declarado'))['total'] or 0
 
     @staticmethod
+    def _bloquear_usuario(usuario):
+        """Bloquea la fila del usuario hasta el final de la transacción: sus cuentas de cuota van de una en una."""
+        get_user_model().objects.select_for_update().get(pk=usuario.pk)
+
+    @staticmethod
     def comprobar_cuota(usuario, tamano_bytes):
         """
         Lanza CuotaExcedida si el fichero pasa del límite por fichero o si no cabe
@@ -635,18 +640,21 @@ class ItemService:
         Comprueba la cuota, apunta la subida pendiente y devuelve (url, key).
         """
         tamano_bytes = int(tamano_bytes)
-        ItemService.comprobar_cuota(usuario, tamano_bytes)
 
         _, extension = os.path.splitext(nombre)
         subcarpeta = 'v/' if item is not None else ''
         key = f"files/{subcarpeta}{uuid.uuid4().hex}{extension}"
 
-        SubidaPendiente.objects.create(
-            key=key,
-            usuario=usuario,
-            item=item,
-            tamano_declarado=tamano_bytes,
-        )
+        # Comprobar y apuntar bajo la misma llave: sin ella, pases simultáneos ven el mismo hueco
+        with transaction.atomic():
+            ItemService._bloquear_usuario(usuario)
+            ItemService.comprobar_cuota(usuario, tamano_bytes)
+            SubidaPendiente.objects.create(
+                key=key,
+                usuario=usuario,
+                item=item,
+                tamano_declarado=tamano_bytes,
+            )
         return ItemService.generar_url_presignada_subida(key), key
 
     @staticmethod
@@ -658,6 +666,8 @@ class ItemService:
 
         El tamaño real manda sobre el declarado: el PUT no pasa por Django, así que
         se puede declarar 1 byte y subir 2 GB. Si pasa eso, se borra el objeto.
+
+        Llamarla en un transaction.atomic() junto al registro, para que la llave dure hasta que exista el Item.
         """
         limite = timezone.now() - timedelta(minutes=settings.SUBIDA_PENDIENTE_MINUTOS)
         pendiente = SubidaPendiente.objects.filter(
@@ -687,12 +697,18 @@ class ItemService:
                 {'key': 'El archivo subido es mayor que el tamaño declarado.'}
             )
 
-        pendiente.delete()
-        try:
-            ItemService.comprobar_cuota(usuario, tamano_real)
-        except CuotaExcedida:
-            ItemService._borrar_objeto(key)
-            raise
+        # La llave se toma después del head_object, para no tenerla puesta mientras se espera a Garage
+        with transaction.atomic():
+            ItemService._bloquear_usuario(usuario)
+            # Si otra petición ya consumió este pase, esta no puede registrar la key otra vez
+            borrados, _ = SubidaPendiente.objects.filter(pk=pendiente.pk).delete()
+            if not borrados:
+                raise DRFValidationError({'key': 'Key no válida.'})
+            try:
+                ItemService.comprobar_cuota(usuario, tamano_real)
+            except CuotaExcedida:
+                ItemService._borrar_objeto(key)
+                raise
 
         return tamano_real
 

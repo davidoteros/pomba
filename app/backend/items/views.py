@@ -4,6 +4,7 @@ from rest_framework import status
 from rest_framework.mixins import ListModelMixin, CreateModelMixin
 from rest_framework.viewsets import GenericViewSet
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 from django.db.models import Exists, OuterRef
@@ -501,15 +502,17 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
         datos.is_valid(raise_exception=True)
 
         try:
-            tamano = ItemService.validar_key_subida(
-                request.user, datos.validated_data['key'], item=item,
-            )
+            # Una sola transacción: el pase se consume y la versión se crea juntos o ninguno
+            with transaction.atomic():
+                tamano = ItemService.validar_key_subida(
+                    request.user, datos.validated_data['key'], item=item,
+                )
+                item = ItemService.registrar_version(
+                    item, datos.validated_data['key'], tamano, datos.validated_data['mime_type'],
+                )
         except CuotaExcedida as e:
             return respuesta_cuota(e)
 
-        item = ItemService.registrar_version(
-            item, datos.validated_data['key'], tamano, datos.validated_data['mime_type'],
-        )
         threading.Thread(target=ItemService.indexar_item, args=(item,), daemon=True).start()
         return Response(ItemSerializer(item, context={'request': request}).data)
 
@@ -641,19 +644,21 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
         datos.is_valid(raise_exception=True)
 
         try:
-            tamano_bytes = ItemService.validar_key_subida(request.user, datos.validated_data['key'])
+            # Una sola transacción: el pase se consume y el Item se crea juntos o ninguno
+            with transaction.atomic():
+                tamano_bytes = ItemService.validar_key_subida(request.user, datos.validated_data['key'])
+                item = ItemService.registrar_item_subido(
+                    usuario=request.user,
+                    nombre=datos.validated_data['nombre'],
+                    padre=datos.validated_data['padre'],
+                    key=datos.validated_data['key'],
+                    tamano_bytes=tamano_bytes,
+                    mime_type=datos.validated_data['mime_type'],
+                )
         except CuotaExcedida as e:
             return respuesta_cuota(e)
-
-        try:
-            item = ItemService.registrar_item_subido(
-                usuario=request.user,
-                nombre=datos.validated_data['nombre'],
-                padre=datos.validated_data['padre'],
-                key=datos.validated_data['key'],
-                tamano_bytes=tamano_bytes,
-                mime_type=datos.validated_data['mime_type'],
-            )
+        except DRFValidationError:
+            raise
         except Exception as e:
             return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
