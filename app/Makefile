@@ -60,6 +60,10 @@ migrate:
 	docker exec -it django_backend python manage.py makemigrations
 	docker exec -it django_backend python manage.py migrate
 
+# Subidas abandonadas en Garage; ej.: make limpiar-subidas ARGS=--barrer
+limpiar-subidas:
+	docker exec django_backend python manage.py limpiar_subidas $(ARGS)
+
 logs:
 	docker logs -f django_backend
 

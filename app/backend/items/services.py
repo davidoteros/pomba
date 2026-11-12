@@ -12,6 +12,7 @@ from botocore.exceptions import ClientError
 from elasticsearch import Elasticsearch
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Exists, Max, OuterRef, Sum
@@ -236,6 +237,8 @@ class ItemService:
             .exclude(file='').values_list('file', flat=True)
         )
         s3_keys += version_keys
+        # Versiones subiéndose: su pase cae en cascada y el fichero quedaría sin rastro
+        s3_keys += SubidaPendiente.objects.filter(item_id__in=all_ids).values_list('key', flat=True)
 
         with transaction.atomic():
             ItemService.delete_s3_keys(s3_keys, bucket_name)
@@ -702,6 +705,69 @@ class ItemService:
             )
         except ClientError:
             logger.warning("No se pudo borrar el objeto huérfano %r", key)
+
+    # Margen tras caducar el pase, para no pisar una confirmación que esté en marcha.
+    MARGEN_LIMPIEZA = timedelta(minutes=10)
+
+    @staticmethod
+    def limpiar_subidas_caducadas():
+        """
+        Borra de Garage y de la BD los pases caducados. Devuelve (pases, objetos) borrados.
+
+        Garage primero: si falla, los pases se quedan y la próxima ejecución lo reintenta.
+        """
+        limite = (timezone.now() - timedelta(minutes=settings.SUBIDA_PENDIENTE_MINUTOS)
+                  - ItemService.MARGEN_LIMPIEZA)
+        caducadas = dict(
+            SubidaPendiente.objects.filter(fecha_creacion__lt=limite).values_list('pk', 'key')
+        )
+        claves = set(caducadas.values())
+        # Nunca se borra un fichero que ya pertenezca a un item o a una versión
+        claves -= set(Item.objects.filter(file__in=claves).values_list('file', flat=True))
+        claves -= set(ItemVersion.objects.filter(file__in=claves).values_list('file', flat=True))
+
+        ItemService.delete_s3_keys(sorted(claves), settings.AWS_STORAGE_BUCKET_NAME)
+        SubidaPendiente.objects.filter(pk__in=caducadas).delete()
+        return len(caducadas), len(claves)
+
+    @staticmethod
+    def claves_registradas():
+        """Keys de Garage que la BD dice que existen: items, previews, versiones y fotos de perfil."""
+        claves = set(Item.objects.exclude(file='').exclude(file__isnull=True).values_list('file', flat=True))
+        claves |= set(
+            Item.objects.exclude(preview_key='').exclude(preview_key=PREVIEW_FALLIDA)
+            .values_list('preview_key', flat=True)
+        )
+        claves |= set(ItemVersion.objects.values_list('file', flat=True))
+        claves |= set(
+            get_user_model().objects.exclude(foto_perfil='').exclude(foto_perfil__isnull=True)
+            .values_list('foto_perfil', flat=True)
+        )
+        return claves
+
+    @staticmethod
+    def revisar_bucket(antiguedad=timedelta(days=1)):
+        """
+        Compara el bucket entero con la BD. Devuelve (huérfanos, rotos):
+        huérfanos son objetos sin fila que llevan más de `antiguedad` en Garage;
+        rotos son keys registradas cuyo objeto no está en Garage.
+        """
+        # Primero el bucket y luego la BD: lo que se confirme entre medias sale como registrado
+        paginas = ItemService.get_s3_client().get_paginator('list_objects_v2').paginate(
+            Bucket=settings.AWS_STORAGE_BUCKET_NAME,
+        )
+        objetos = {o['Key']: o for pagina in paginas for o in pagina.get('Contents', [])}
+        registradas = ItemService.claves_registradas()
+        pendientes = set(SubidaPendiente.objects.values_list('key', flat=True))
+
+        # El margen cubre las subidas en curso: el objeto llega antes que su Item
+        limite = timezone.now() - antiguedad
+        huerfanos = [
+            o for k, o in sorted(objetos.items())
+            if k not in registradas and k not in pendientes and o['LastModified'] < limite
+        ]
+        rotos = sorted(registradas - objetos.keys())
+        return huerfanos, rotos
 
     @staticmethod
     def registrar_item_subido(usuario, nombre, padre, key, tamano_bytes, mime_type):
