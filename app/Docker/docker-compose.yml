@@ -54,8 +54,6 @@ services:
     env_file: .env.development
     volumes:
       - ../frontend/:/app
-    ports:
-      - "5173:5173"
     depends_on:
       - backend
     networks:
@@ -71,7 +69,7 @@ services:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432" 
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
@@ -94,7 +92,6 @@ services:
       - garage_meta:/var/lib/garage/meta
       - garage_data:/var/lib/garage/data
       - ./garage.toml:/etc/garage.toml:ro
-    # Sin puertos: solo accesible por la red interna appnet.
     networks:
       - appnet
 
@@ -119,7 +116,7 @@ services:
         timeout: 10s
         retries: 5
       ports:
-        - "9200:9200"
+        - "127.0.0.1:9200:9200"
       networks:
         - appnet
         
@@ -131,7 +128,7 @@ services:
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
     ports:
-      - "5601:5601"
+      - "127.0.0.1:5601:5601"
     depends_on:
       elasticsearch:
         condition: service_healthy

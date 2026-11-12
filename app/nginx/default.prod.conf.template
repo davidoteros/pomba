@@ -3,6 +3,24 @@ map $http_upgrade $connection_upgrade {
     '' close;
 }
 
+# DNS interno de Docker: vuelve a buscar la IP de un contenedor si se recrea
+resolver 127.0.0.11 valid=10s;
+
+upstream garage_s3 {
+    zone contenedores 64k;
+    server garage:3900 resolve;
+}
+
+upstream django {
+    zone contenedores;
+    server backend:8000 resolve;
+}
+
+upstream vue {
+    zone contenedores;
+    server frontend:80 resolve;
+}
+
 # -------------------------------------------------------
 # Puerto 3900: proxy CORS para Garage S3
 # -------------------------------------------------------
@@ -34,7 +52,7 @@ server {
         add_header 'Access-Control-Expose-Headers' 'ETag, Accept-Ranges, Content-Range, Content-Length' always;
         add_header 'X-Content-Type-Options' 'nosniff' always;
 
-        proxy_pass http://garage:3900;
+        proxy_pass http://garage_s3;
         # Host debe coincidir con lo que firmó SigV4 (host=pomba.me:3900)
         proxy_set_header Host $host:3900;
         proxy_http_version 1.1;
@@ -74,7 +92,7 @@ server {
 
     # API, admin y estáticos de Django
     location ~ ^/(api|admin|static_backend) {
-        proxy_pass http://backend:8000;
+        proxy_pass http://django;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -92,7 +110,7 @@ server {
 
     # Todo lo demás a través de Vue (nginx interno del contenedor frontend)
     location / {
-        proxy_pass http://frontend:80;
+        proxy_pass http://vue;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
