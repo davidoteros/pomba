@@ -4,6 +4,7 @@ from datetime import timedelta
 from io import StringIO
 from unittest import mock
 
+from botocore.exceptions import EndpointConnectionError
 from django.contrib.auth import get_user_model
 from django.core.management import CommandError, call_command
 from django.db import connection
@@ -196,3 +197,103 @@ class CarreraCuotaTests(TransactionTestCase):
 
         self.assertEqual(sorted(a_la_vez(2, confirmar)), [201, 400])
         self.assertEqual(Item.objects.filter(file='files/doble.bin').count(), 1)
+
+
+GARAGE_CAIDO = EndpointConnectionError(endpoint_url='http://garage:3900/pomba-app?delete')
+
+
+@mock.patch.object(registry, 'delete_related')
+@mock.patch.object(registry, 'update_related')
+@mock.patch.object(registry, 'update')
+@mock.patch.object(registry, 'delete')
+@mock.patch('items.services.ItemService.get_s3_client')
+class ErroresTests(TestCase):
+    """Los errores internos van al log y el cliente solo recibe mensajes escritos para él."""
+
+    def setUp(self):
+        self.usuario = Usuario.objects.create_user(email='errores@prueba.com', password='Prueba1234!')
+        # Que devuelva la respuesta del 5xx en vez de relanzar el error en la prueba
+        self.cliente = APIClient(raise_request_exception=False)
+        self.cliente.force_authenticate(self.usuario)
+
+    def carpeta(self, nombre, padre=None, usuario=None):
+        return Item.objects.create(
+            usuario=usuario or self.usuario, nombre=nombre, tipo=Item.Tipo.CARPETA, padre=padre,
+        )
+
+    def primer_error(self, respuesta):
+        return respuesta.json()['errors'][0]
+
+    def test_garage_caido_al_vaciar_papelera_da_503_sin_detalles(self, s3, *_):
+        Item.objects.create(
+            usuario=self.usuario, nombre='f.txt', tipo=Item.Tipo.ARCHIVO, file='files/f.txt', eliminado=True,
+        )
+        s3.return_value.delete_objects.side_effect = GARAGE_CAIDO
+
+        with self.assertLogs('django.request', 'ERROR') as log:
+            respuesta = self.cliente.post('/api/items/vaciar_papelera/')
+
+        self.assertEqual(respuesta.status_code, 503)
+        self.assertNotIn('garage', respuesta.content.decode())
+        self.assertIn('garage:3900', str(log.records[0].exc_info[1]))
+        self.assertTrue(Item.objects.filter(file='files/f.txt').exists())
+
+    def test_error_inesperado_da_500_generico_y_queda_en_el_log(self, *_):
+        item = self.carpeta('A')
+        item.eliminado = True
+        item.save()
+
+        with mock.patch.object(ItemService, 'restaurar_items', side_effect=RuntimeError('secreto')):
+            with self.assertLogs('django.request', 'ERROR') as log:
+                respuesta = self.cliente.post('/api/items/restaurar/', {'ids': [item.id]}, format='json')
+
+        self.assertEqual(respuesta.status_code, 500)
+        self.assertNotIn('secreto', respuesta.content.decode())
+        self.assertIn('secreto', str(log.records[0].exc_info[1]))
+
+    def test_mover_dentro_de_su_hija_da_400_con_mensaje_limpio(self, *_):
+        a = self.carpeta('A')
+        b = self.carpeta('B', padre=a)
+
+        respuesta = self.cliente.post('/api/items/mover/', {'ids': [a.id], 'destino': b.id}, format='json')
+
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertEqual(self.primer_error(respuesta)['detail'], 'No puedes crear ciclos')
+
+    def test_renombrar_con_nombre_largo_da_400_en_el_campo_nombre(self, *_):
+        a = self.carpeta('A')
+
+        respuesta = self.cliente.post(f'/api/items/{a.id}/renombrar/', {'nombre': 'x' * 300}, format='json')
+
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertEqual(self.primer_error(respuesta)['attr'], 'nombre')
+        self.assertNotIn('ErrorDetail', respuesta.content.decode())
+
+    def test_favorito_de_otro_usuario_da_404(self, *_):
+        otro = Usuario.objects.create_user(email='otro@prueba.com', password='Prueba1234!')
+        ajena = self.carpeta('ajena', usuario=otro)
+
+        respuesta = self.cliente.post('/api/items/favorito/', {'id': ajena.id}, format='json')
+
+        self.assertEqual(respuesta.status_code, 404)
+
+    def test_arbol_con_ruta_padre_que_falta_no_deja_carpetas_a_medias(self, *_):
+        respuesta = self.cliente.post(
+            '/api/items/crear_arbol_carpetas/', {'rutas': ['a', 'x/b']}, format='json',
+        )
+
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertFalse(Item.objects.filter(usuario=self.usuario).exists())
+
+    def test_garage_caido_al_confirmar_da_503_y_el_pase_se_queda(self, s3, *_):
+        SubidaPendiente.objects.create(key='files/c.txt', usuario=self.usuario, tamano_declarado=10)
+        s3.return_value.head_object.side_effect = GARAGE_CAIDO
+
+        with self.assertLogs('django.request', 'ERROR'):
+            respuesta = self.cliente.post(
+                '/api/items/confirmar_subida/', {'nombre': 'c.txt', 'key': 'files/c.txt'}, format='json',
+            )
+
+        self.assertEqual(respuesta.status_code, 503)
+        self.assertNotIn('garage', respuesta.content.decode())
+        self.assertTrue(SubidaPendiente.objects.filter(key='files/c.txt').exists())

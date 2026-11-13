@@ -17,7 +17,6 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Exists, Max, OuterRef, Sum
 from django.utils import timezone
-from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from .documents import ItemDocument
 from .extractors import extraer
@@ -506,10 +505,7 @@ class ItemService:
 
     @staticmethod
     def guardar_item(item):
-        try:
-            item.full_clean()
-        except DjangoValidationError as e:
-            raise DRFValidationError(e.message_dict)
+        item.full_clean()
         item.save()
         return item
 
@@ -674,26 +670,26 @@ class ItemService:
             key=key, usuario=usuario, item=item, fecha_creacion__gte=limite,
         ).first()
         if pendiente is None:
-            raise DRFValidationError({'key': 'Key no válida.'})
+            raise DjangoValidationError({'key': 'Key no válida.'})
 
         # El pase se borra al confirmar, así que una key ya
         # registrada no debería llegar hasta aquí nunca.
         if Item.objects.filter(file=key).exists() or ItemVersion.objects.filter(file=key).exists():
-            raise DRFValidationError({'key': 'Key ya registrada.'})
+            raise DjangoValidationError({'key': 'Key ya registrada.'})
 
         try:
             cabecera = ItemService.get_s3_client().head_object(
                 Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=key
             )
         except ClientError:
-            raise DRFValidationError({'key': 'El archivo no se ha subido.'})
+            raise DjangoValidationError({'key': 'El archivo no se ha subido.'})
 
         tamano_real = cabecera['ContentLength']
 
         if tamano_real > pendiente.tamano_declarado:
             ItemService._borrar_objeto(key)
             pendiente.delete()
-            raise DRFValidationError(
+            raise DjangoValidationError(
                 {'key': 'El archivo subido es mayor que el tamaño declarado.'}
             )
 
@@ -703,7 +699,7 @@ class ItemService:
             # Si otra petición ya consumió este pase, esta no puede registrar la key otra vez
             borrados, _ = SubidaPendiente.objects.filter(pk=pendiente.pk).delete()
             if not borrados:
-                raise DRFValidationError({'key': 'Key no válida.'})
+                raise DjangoValidationError({'key': 'Key no válida.'})
             try:
                 ItemService.comprobar_cuota(usuario, tamano_real)
             except CuotaExcedida:
@@ -723,7 +719,7 @@ class ItemService:
             logger.warning("No se pudo borrar el objeto huérfano %r", key)
 
     # Margen tras caducar el pase, para no pisar una confirmación que esté en marcha.
-    MARGEN_LIMPIEZA = timedelta(minutes=10)
+    _MARGEN_LIMPIEZA = timedelta(minutes=10)
 
     @staticmethod
     def limpiar_subidas_caducadas():
@@ -733,7 +729,7 @@ class ItemService:
         Garage primero: si falla, los pases se quedan y la próxima ejecución lo reintenta.
         """
         limite = (timezone.now() - timedelta(minutes=settings.SUBIDA_PENDIENTE_MINUTOS)
-                  - ItemService.MARGEN_LIMPIEZA)
+                  - ItemService._MARGEN_LIMPIEZA)
         caducadas = dict(
             SubidaPendiente.objects.filter(fecha_creacion__lt=limite).values_list('pk', 'key')
         )
@@ -945,7 +941,7 @@ class ItemService:
         """Genera una presigned URL para previsualización (image, audio, PDF)."""
         mime = mime_previsualizable(item.mime_type)
         if mime is None:
-            raise DRFValidationError({'detail': 'Tipo de archivo no previsualizable.'})
+            raise DjangoValidationError({'detail': 'Tipo de archivo no previsualizable.'})
 
         public_endpoint = getattr(settings, "GARAGE_PUBLIC_URL", settings.AWS_S3_ENDPOINT_URL)
 
@@ -983,7 +979,7 @@ class ItemService:
         Siempre image/png: el fichero original nunca se sirve inline.
         """
         if not item.preview_key or item.preview_key == PREVIEW_FALLIDA:
-            raise DRFValidationError({'detail': 'Tipo de archivo no previsualizable.'})
+            raise DjangoValidationError({'detail': 'Tipo de archivo no previsualizable.'})
 
         public_endpoint = getattr(settings, "GARAGE_PUBLIC_URL", settings.AWS_S3_ENDPOINT_URL)
 
@@ -1169,7 +1165,7 @@ class ItemService:
         """Presigned GET URL (inline) para reproducir una versión archivada directamente en el navegador."""
         mime = mime_previsualizable(version.mime_type)
         if mime is None:
-            raise DRFValidationError({'detail': 'Tipo de archivo no previsualizable.'})
+            raise DjangoValidationError({'detail': 'Tipo de archivo no previsualizable.'})
 
         public_endpoint = getattr(settings, "GARAGE_PUBLIC_URL", settings.AWS_S3_ENDPOINT_URL)
         client = boto3.client(

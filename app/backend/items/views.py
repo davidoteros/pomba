@@ -149,10 +149,7 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         item.nombre = nuevo_nombre
-        try:
-            ItemService.guardar_item(item)
-        except Exception as e:
-            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        ItemService.guardar_item(item)
 
         ItemService.indexar_item(item)
 
@@ -175,12 +172,12 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
             )
         try:
             nuevo_valor = ItemService.marcar_favorito(item_id=item_id, usuario=request.user)
-            return Response({
-                'detail': 'Favorito actualizado correctamente.',
-                'favorito': nuevo_valor,
-            })
-        except Exception as e:
-            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Item.DoesNotExist:
+            return Response({'detail': 'Elemento no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({
+            'detail': 'Favorito actualizado correctamente.',
+            'favorito': nuevo_valor,
+        })
 
     @extend_schema(
         request=inline_serializer('TrashRequest', fields={'ids': drf_serializers.ListField(child=drf_serializers.IntegerField())}),
@@ -194,11 +191,8 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
                 {'detail': 'No se han enviado elementos.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        try:
-            cantidad = ItemService.mover_a_papelera(ids=ids, usuario=request.user)
-            return Response({'detail': f'Se han movido {cantidad} elementos a la papelera.'})
-        except Exception as e:
-            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        cantidad = ItemService.mover_a_papelera(ids=ids, usuario=request.user)
+        return Response({'detail': f'Se han movido {cantidad} elementos a la papelera.'})
 
     @extend_schema(
         request=inline_serializer('EliminarDefinitivoRequest', fields={'ids': drf_serializers.ListField(child=drf_serializers.IntegerField())}),
@@ -227,14 +221,11 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
             ).values_list('id', flat=True)
         )
 
-        try:
-            result = ItemService.eliminar_items_fisicos(
-                ids=ids,
-                usuario=request.user,
-                bucket_name=settings.AWS_STORAGE_BUCKET_NAME,
-            )
-        except Exception as e:
-            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        result = ItemService.eliminar_items_fisicos(
+            ids=ids,
+            usuario=request.user,
+            bucket_name=settings.AWS_STORAGE_BUCKET_NAME,
+        )
 
         for item_id in ids_archivos:
             ItemService.eliminar_del_indice(item_id)
@@ -257,11 +248,8 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
                 {'detail': 'No se han enviado elementos.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        try:
-            restaurados = ItemService.restaurar_items(ids=ids, usuario=request.user)
-            return Response({'detail': f'Se han restaurado {restaurados} elementos.'})
-        except Exception as e:
-            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        restaurados = ItemService.restaurar_items(ids=ids, usuario=request.user)
+        return Response({'detail': f'Se han restaurado {restaurados} elementos.'})
 
     @extend_schema(
         request=inline_serializer('MoverRequest', fields={
@@ -294,11 +282,8 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
                 )
 
         items_obj = list(Item.objects.filter(id__in=ids, usuario=request.user, eliminado=False))
-        try:
-            for item in items_obj:
-                ItemService.mover_item(item, destino)
-        except Exception as e:
-            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        for item in items_obj:
+            ItemService.mover_item(item, destino)
 
         return Response({'detail': f'Se han movido {len(items_obj)} elementos.'})
 
@@ -314,11 +299,8 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
                 eliminado=True,
             ).values_list('id', flat=True)
         )
-        try:
-            restaurados = ItemService.restaurar_items(ids=ids, usuario=request.user)
-            return Response({'detail': f'Se han restaurado {restaurados} elementos.'})
-        except Exception as e:
-            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        restaurados = ItemService.restaurar_items(ids=ids, usuario=request.user)
+        return Response({'detail': f'Se han restaurado {restaurados} elementos.'})
 
     @extend_schema(
         request=None,
@@ -338,13 +320,10 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
             ).values_list('id', flat=True)
         )
 
-        try:
-            result = ItemService.vaciar_papelera(
-                usuario=request.user,
-                bucket_name=settings.AWS_STORAGE_BUCKET_NAME,
-            )
-        except Exception as e:
-            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        result = ItemService.vaciar_papelera(
+            usuario=request.user,
+            bucket_name=settings.AWS_STORAGE_BUCKET_NAME,
+        )
 
         for item_id in ids_archivos:
             ItemService.eliminar_del_indice(item_id)
@@ -537,10 +516,7 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
             version = item.versiones.get(numero=int(num))
         except ItemVersion.DoesNotExist:
             return Response({'detail': 'Versión no encontrada.'}, status=status.HTTP_404_NOT_FOUND)
-        try:
-            item = ItemService.activar_version(item, version)
-        except Exception as e:
-            return Response({'detail': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        item = ItemService.activar_version(item, version)
         threading.Thread(target=ItemService.indexar_item, args=(item,), daemon=True).start()
         return Response(ItemSerializer(item, context={'request': request}).data)
 
@@ -657,10 +633,6 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
                 )
         except CuotaExcedida as e:
             return respuesta_cuota(e)
-        except DRFValidationError:
-            raise
-        except Exception as e:
-            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         threading.Thread(target=ItemService.procesar_item_subido, args=(item,), daemon=True).start()
 
@@ -693,35 +665,29 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
             except Item.DoesNotExist:
                 return Response({'detail': 'Carpeta padre no encontrada.'}, status=404)
         
-        try:
-            with transaction.atomic():
-                for ruta in rutas:
-                    partes = ruta.split('/')
-                    nombre = partes[-1]
-                    
-                    # El padre de esta carpeta es la ruta padre dentro del mapa
-                    if len(partes) == 1:
-                        padre = padre_raiz
-                    else:
-                        ruta_padre = '/'.join(partes[:-1])
-                        padre_id_local = mapa.get(ruta_padre)
-                        if padre_id_local is None:
-                            return Response(
-                                {'detail': f'Ruta padre no encontrada: {ruta_padre}'},
-                                status=400
-                            )
-                        padre = Item.objects.get(id=padre_id_local)
-                    
-                    item = Item(
-                        usuario=request.user,
-                        nombre=nombre,
-                        tipo=Item.Tipo.CARPETA,
-                        padre=padre,
-                    )
-                    ItemService.guardar_item(item)
-                    mapa[ruta] = item.id
-                    
-        except Exception as e:
-            return Response({'detail': str(e)}, status=400)
-        
+        with transaction.atomic():
+            for ruta in rutas:
+                partes = ruta.split('/')
+                nombre = partes[-1]
+
+                # El padre de esta carpeta es la ruta padre dentro del mapa
+                if len(partes) == 1:
+                    padre = padre_raiz
+                else:
+                    ruta_padre = '/'.join(partes[:-1])
+                    padre_id_local = mapa.get(ruta_padre)
+                    if padre_id_local is None:
+                        # raise y no return: así se deshacen las carpetas ya creadas
+                        raise DRFValidationError({'rutas': f'Ruta padre no encontrada: {ruta_padre}'})
+                    padre = Item.objects.get(id=padre_id_local)
+
+                item = Item(
+                    usuario=request.user,
+                    nombre=nombre,
+                    tipo=Item.Tipo.CARPETA,
+                    padre=padre,
+                )
+                ItemService.guardar_item(item)
+                mapa[ruta] = item.id
+
         return Response({'mapa': mapa})

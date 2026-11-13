@@ -214,7 +214,10 @@ SPECTACULAR_SETTINGS = {
 # Publicar el esquema OpenAPI (/api/schema/ y Swagger/Redoc). Desactivado por defecto
 EXPONER_API_SCHEMA = os.environ.get('EXPONER_API_SCHEMA', 'false').lower() == 'true'
 
-DRF_STANDARDIZED_ERRORS = {'ENABLE_IN_DEBUG_FOR_UNHANDLED_EXCEPTIONS': True}
+DRF_STANDARDIZED_ERRORS = {
+    'ENABLE_IN_DEBUG_FOR_UNHANDLED_EXCEPTIONS': True,
+    'EXCEPTION_HANDLER_CLASS': 'core.exceptions.ManejadorErrores',
+}
 
 # =========================================================
 # SESIONES
