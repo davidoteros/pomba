@@ -297,3 +297,40 @@ class ErroresTests(TestCase):
         self.assertEqual(respuesta.status_code, 503)
         self.assertNotIn('garage', respuesta.content.decode())
         self.assertTrue(SubidaPendiente.objects.filter(key='files/c.txt').exists())
+
+    def test_los_5xx_llevan_la_referencia_de_nginx_en_la_respuesta_y_en_el_log(self, s3, *_):
+        ref = 'a1b2c3d4e5f60718293a4b5c6d7e8f90'
+        Item.objects.create(
+            usuario=self.usuario, nombre='f.txt', tipo=Item.Tipo.ARCHIVO, file='files/f.txt', eliminado=True,
+        )
+        s3.return_value.delete_objects.side_effect = GARAGE_CAIDO
+
+        with self.assertLogs('django.request', 'ERROR') as log:
+            respuesta = self.cliente.post('/api/items/vaciar_papelera/', HTTP_X_REQUEST_ID=ref)
+
+        self.assertEqual(respuesta.status_code, 503)
+        self.assertIn(f'(ref. {ref})', self.primer_error(respuesta)['detail'])
+        self.assertIn(ref, log.output[0])
+
+    def test_el_500_generico_tambien_lleva_la_referencia(self, *_):
+        ref = '0123456789abcdef0123456789abcdef'
+        with mock.patch.object(ItemService, 'restaurar_items', side_effect=RuntimeError('secreto')):
+            with self.assertLogs('django.request', 'ERROR') as log:
+                respuesta = self.cliente.post(
+                    '/api/items/restaurar/', {'ids': [1]}, format='json', HTTP_X_REQUEST_ID=ref,
+                )
+
+        self.assertEqual(respuesta.status_code, 500)
+        self.assertEqual(self.primer_error(respuesta)['detail'], f'Server Error (500) (ref. {ref})')
+        self.assertIn(ref, log.output[0])
+
+    def test_una_referencia_con_formato_raro_se_ignora(self, *_):
+        with mock.patch.object(ItemService, 'restaurar_items', side_effect=RuntimeError('secreto')):
+            with self.assertLogs('django.request', 'ERROR') as log:
+                respuesta = self.cliente.post(
+                    '/api/items/restaurar/', {'ids': [1]}, format='json',
+                    HTTP_X_REQUEST_ID='falso\nERROR linea inventada',
+                )
+
+        self.assertEqual(self.primer_error(respuesta)['detail'], 'Server Error (500)')
+        self.assertNotIn('inventada', log.output[0])
