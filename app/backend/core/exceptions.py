@@ -30,7 +30,8 @@ class ManejadorErrores(ExceptionHandler):
         return super().convert_known_exceptions(exc)
 
     def convert_unhandled_exceptions(self, exc):
-        exc = super().convert_unhandled_exceptions(exc)
+        # El 500 genérico con el texto de DRF, ya traducido al idioma de LANGUAGE_CODE
+        exc = exc if isinstance(exc, APIException) else APIException()
         ref = self.context['request'].META.get('HTTP_X_REQUEST_ID', '')
         # En los 5xx, la misma referencia sale en la respuesta y en la línea del log
         if status.is_server_error(exc.status_code) and _FORMATO_REQUEST_ID.fullmatch(ref):

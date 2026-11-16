@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { apiItems } from '@/api/items'
-import { getErrorMessage } from '@/utils/errors'
+import { getErrorMessage, mensajeDeAccion, motivoParaUsuario } from '@/utils/errors'
 
 const NOTIF_DURACION_EXITO = 3
 const NOTIF_DURACION_ERROR = 5
@@ -95,7 +95,7 @@ export const useGestorItems = defineStore('items', {
         this.agregarNotificacion({
           id: 'preview-error',
           tipo: 'error',
-          mensaje: getErrorMessage(e) || 'No se pudo previsualizar el archivo.',
+          mensaje: mensajeDeAccion(e, 'No se pudo previsualizar el archivo.'),
           icono: 'pi-eye-slash',
         })
       }
@@ -174,7 +174,7 @@ export const useGestorItems = defineStore('items', {
           this.agregarNotificacion({
             id: 'cargar-error',
             tipo: 'error',
-            mensaje: 'No se pudieron cargar los archivos',
+            mensaje: mensajeDeAccion(error, 'No se pudieron cargar los archivos'),
             icono: 'pi-folder-open',
           })
         }
@@ -196,7 +196,7 @@ export const useGestorItems = defineStore('items', {
         this.agregarNotificacion({
           id: 'buscar-error',
           tipo: 'error',
-          mensaje: 'Error al realizar la búsqueda',
+          mensaje: mensajeDeAccion(error, 'Error al realizar la búsqueda'),
           icono: 'pi-search',
         })
       } finally {
@@ -214,7 +214,7 @@ export const useGestorItems = defineStore('items', {
         this.agregarNotificacion({
           id: 'crear-carpeta',
           tipo: 'error',
-          mensaje: 'No se pudo crear la carpeta',
+          mensaje: getErrorMessage(error),
           icono: 'pi-folder',
         })
         return false
@@ -247,7 +247,7 @@ export const useGestorItems = defineStore('items', {
         this.agregarNotificacion({
           id: 'subir-error',
           tipo: 'error',
-          mensaje: 'No se pudo subir el archivo',
+          mensaje: mensajeDeAccion(error, 'No se pudo subir el archivo'),
           icono: 'pi-upload',
         })
       } finally {
@@ -312,6 +312,7 @@ export const useGestorItems = defineStore('items', {
 
         let subidos = 0
         let fallidos = 0
+        let primerFallo = null
         const total = archivos.length
 
         this.actualizarNotificacion(NOTIF_ID, { mensaje: `Subiendo archivos… 0 / ${total}` })
@@ -333,6 +334,7 @@ export const useGestorItems = defineStore('items', {
               subidos++
             } else {
               fallidos++
+              primerFallo ??= resultado.reason
               console.error('Error subiendo archivo:', resultado.reason?.response?.data ?? resultado.reason)
             }
           }
@@ -354,11 +356,12 @@ export const useGestorItems = defineStore('items', {
             3,
           )
         } else {
+          const motivo = motivoParaUsuario(primerFallo)
           this.actualizarNotificacion(
             NOTIF_ID,
             {
               tipo: 'error',
-              mensaje: `${subidos} subidos, ${fallidos} fallaron`,
+              mensaje: `${subidos} subidos, ${fallidos} fallaron` + (motivo ? `: ${motivo}` : ''),
               icono: 'pi-exclamation-triangle',
               severidad: 'advertencia',
             },
@@ -367,12 +370,11 @@ export const useGestorItems = defineStore('items', {
         }
 
       } catch (error) {
-        console.error('Error subiendo carpeta:', error?.response?.data ?? error)
         this.actualizarNotificacion(
           NOTIF_ID,
           {
             tipo: 'error',
-            mensaje: 'Error al crear la estructura de carpetas',
+            mensaje: mensajeDeAccion(error, 'Error al crear la estructura de carpetas'),
             icono: 'pi-times',
             severidad: 'peligro',
           },
@@ -435,10 +437,9 @@ export const useGestorItems = defineStore('items', {
         this.agregarNotificacion({
           id: 'mover',
           tipo: 'error',
-          mensaje: 'No se pudo mover el elemento',
+          mensaje: mensajeDeAccion(error, 'No se pudo mover el elemento'),
           icono: 'pi-times',
         })
-        console.error('Error moviendo items:', error)
       }
     },
 
@@ -456,7 +457,7 @@ export const useGestorItems = defineStore('items', {
         this.agregarNotificacion({
           id: 'favorito-error',
           tipo: 'error',
-          mensaje: 'No se pudo actualizar el favorito',
+          mensaje: mensajeDeAccion(error, 'No se pudo actualizar el favorito'),
           icono: 'pi-star',
         })
       }
@@ -480,7 +481,7 @@ export const useGestorItems = defineStore('items', {
         this.agregarNotificacion({
           id: 'papelera-error',
           tipo: 'error',
-          mensaje: 'No se pudo mover a la papelera',
+          mensaje: mensajeDeAccion(error, 'No se pudo mover a la papelera'),
           icono: 'pi-trash',
         })
       }
@@ -504,8 +505,7 @@ export const useGestorItems = defineStore('items', {
           3,
         )
       } catch (error) {
-        this.actualizarNotificacion('eliminar', { tipo: 'error', mensaje: 'Error al eliminar' }, 5)
-        console.error('Error eliminando definitivamente:', error)
+        this.actualizarNotificacion('eliminar', { tipo: 'error', mensaje: mensajeDeAccion(error, 'Error al eliminar') }, 5)
       }
     },
 
@@ -525,7 +525,7 @@ export const useGestorItems = defineStore('items', {
         this.agregarNotificacion({
           id: 'restaurar-error',
           tipo: 'error',
-          mensaje: 'No se pudo restaurar el elemento',
+          mensaje: mensajeDeAccion(error, 'No se pudo restaurar el elemento'),
           icono: 'pi-replay',
         })
       }
@@ -546,7 +546,7 @@ export const useGestorItems = defineStore('items', {
         this.agregarNotificacion({
           id: 'restaurar-error',
           tipo: 'error',
-          mensaje: 'No se pudo restaurar la papelera',
+          mensaje: mensajeDeAccion(error, 'No se pudo restaurar la papelera'),
           icono: 'pi-replay',
         })
       }
@@ -571,10 +571,9 @@ export const useGestorItems = defineStore('items', {
       } catch (error) {
         this.actualizarNotificacion(
           'vaciar-papelera',
-          { tipo: 'error', mensaje: 'Error al vaciar la papelera' },
+          { tipo: 'error', mensaje: mensajeDeAccion(error, 'Error al vaciar la papelera') },
           5,
         )
-        console.error('Error vaciando papelera:', error)
       }
     },
 
@@ -596,7 +595,7 @@ export const useGestorItems = defineStore('items', {
           this.agregarNotificacion({
             id: 'descargar-error',
             tipo: 'error',
-            mensaje: 'No se pudo descargar el archivo',
+            mensaje: mensajeDeAccion(error, 'No se pudo descargar el archivo'),
             icono: 'pi-download',
           })
         }
@@ -623,9 +622,13 @@ export const useGestorItems = defineStore('items', {
         document.body.removeChild(a)
         URL.revokeObjectURL(blobUrl)
       } catch (error) {
+        // Con responseType 'blob' el error llega como Blob: se lee para no perder el motivo ni la ref
+        if (error?.response?.data instanceof Blob) {
+          try { error.response.data = JSON.parse(await error.response.data.text()) } catch { /* no es JSON */ }
+        }
         const mensaje = error?.response?.status === 404
           ? 'La carpeta no contiene ningún archivo'
-          : 'No se pudo generar la descarga'
+          : mensajeDeAccion(error, 'No se pudo generar la descarga')
         this.agregarNotificacion({
           id: 'descargar-error',
           tipo: 'error',
@@ -665,7 +668,7 @@ export const useGestorItems = defineStore('items', {
       } catch (e) {
         this.actualizarNotificacion(NOTIF_ID, {
           tipo: 'error',
-          mensaje: getErrorMessage(e) || 'No se pudo subir la nueva versión',
+          mensaje: mensajeDeAccion(e, 'No se pudo subir la nueva versión'),
           icono: 'pi-times',
         }, 5)
         return false

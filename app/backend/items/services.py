@@ -16,6 +16,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Exists, Max, OuterRef, Sum
+from django.template.defaultfilters import filesizeformat
 from django.utils import timezone
 
 from .documents import ItemDocument
@@ -581,7 +582,7 @@ class ItemService:
         """
         if tamano_bytes > settings.LIMITE_FICHERO_BYTES:
             raise CuotaExcedida(
-                f'El archivo supera el máximo de {settings.LIMITE_FICHERO_BYTES} bytes por fichero.',
+                f'El archivo supera el máximo de {filesizeformat(settings.LIMITE_FICHERO_BYTES)} por fichero.',
                 motivo='fichero',
             )
 
@@ -589,7 +590,7 @@ class ItemService:
         if ocupado + tamano_bytes > settings.CUOTA_USUARIO_BYTES:
             libre = max(settings.CUOTA_USUARIO_BYTES - ocupado, 0)
             raise CuotaExcedida(
-                f'Sin espacio: quedan {libre} bytes libres de {settings.CUOTA_USUARIO_BYTES}.',
+                f'Sin espacio: quedan {filesizeformat(libre)} libres de {filesizeformat(settings.CUOTA_USUARIO_BYTES)}.',
                 motivo='cuota',
             )
 

@@ -14,6 +14,7 @@ export const errorMessages = {
     no_active_account: "El correo o la contraseña no son correctos",
     required: "Este campo es obligatorio",
     unique: "Este valor ya está en uso",
+    not_authenticated: "Tu sesión ha caducado. Vuelve a iniciar sesión.",
   },
 
   fallback: "Ha ocurrido un error inesperado",

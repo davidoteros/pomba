@@ -42,3 +42,20 @@ export function getErrorMessage(error) {
     ? `Error interno: ${error.message}`
     : errorMessages.fallback;
 }
+
+// Botones (mover, borrar…): el motivo del servidor solo si le sirve al usuario; si no, null
+export function motivoParaUsuario(error) {
+  if (!error?.response) return error?.request ? errorMessages.network : null;
+  const { status, data } = error.response;
+  const primero = data?.errors?.[0];
+  if (primero?.code === "not_authenticated") return errorMessages.codes.not_authenticated;
+  const detalle = primero?.detail ?? data?.detail;
+  const util = status === 409 || status === 413 || status >= 500;
+  return util && typeof detalle === "string" ? detalle : null;
+}
+
+// Texto de la notificación de un botón; el detalle técnico va a la consola (F12)
+export function mensajeDeAccion(error, textoAccion) {
+  console.error(`${textoAccion}:`, error?.response?.data ?? error);
+  return motivoParaUsuario(error) ?? textoAccion;
+}

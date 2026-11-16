@@ -7,6 +7,7 @@ import { formatDate } from '@/utils/date'
 import { formatBytes } from '@/utils/bytes'
 import { obtenerIcono } from '@/utils/iconos'
 import { etiquetaAmigable } from '@/utils/metadatos'
+import { mensajeDeAccion } from '@/utils/errors'
 
 // === STORE Y COMPOSABLES =============================================
 const gestor = useGestorItems()
@@ -89,10 +90,10 @@ async function cargarVersiones() {
     const data = await apiItems.listarVersiones(item.value.id)
     versiones.value = data.versiones
     numeroActual.value = data.numero_actual
-  } catch {
+  } catch (e) {
     gestor.agregarNotificacion({
       id: 'versiones-error', tipo: 'error',
-      mensaje: 'No se pudieron cargar las versiones', icono: 'pi-history',
+      mensaje: mensajeDeAccion(e, 'No se pudieron cargar las versiones'), icono: 'pi-history',
     })
   } finally {
     cargandoVersiones.value = false
@@ -119,10 +120,10 @@ async function descargarVersionAntigua(version) {
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
-  } catch {
+  } catch (e) {
     gestor.agregarNotificacion({
       id: 'descarga-version', tipo: 'error',
-      mensaje: 'No se pudo descargar la versión', icono: 'pi-download',
+      mensaje: mensajeDeAccion(e, 'No se pudo descargar la versión'), icono: 'pi-download',
     })
   }
 }
@@ -132,10 +133,10 @@ async function marcarComoActual(version) {
     const itemActualizado = await apiItems.activarVersion(item.value.id, version.numero)
     gestor.actualizarItemsLocal([item.value.id], itemActualizado)
     await cargarVersiones()
-  } catch {
+  } catch (e) {
     gestor.agregarNotificacion({
       id: 'restaurar-version', tipo: 'error',
-      mensaje: 'No se pudo marcar la versión como actual', icono: 'pi-history',
+      mensaje: mensajeDeAccion(e, 'No se pudo marcar la versión como actual'), icono: 'pi-history',
     })
   }
 }
@@ -151,10 +152,10 @@ async function eliminarVersion(version) {
   try {
     await apiItems.eliminarVersion(item.value.id, version.numero)
     await cargarVersiones()
-  } catch {
+  } catch (e) {
     gestor.agregarNotificacion({
       id: 'eliminar-version', tipo: 'error',
-      mensaje: 'No se pudo eliminar la versión', icono: 'pi-trash',
+      mensaje: mensajeDeAccion(e, 'No se pudo eliminar la versión'), icono: 'pi-trash',
     })
   }
 }
@@ -170,10 +171,10 @@ async function toggleReproducir(numero) {
     const { url } = await apiItems.previsualizarVersion(item.value.id, numero)
     urlReproduciendo.value = url
     reproduciendo.value    = numero
-  } catch {
+  } catch (e) {
     gestor.agregarNotificacion({
       id: 'preview-version', tipo: 'error',
-      mensaje: 'No se pudo cargar la versión para reproducir', icono: 'pi-headphones',
+      mensaje: mensajeDeAccion(e, 'No se pudo cargar la versión para reproducir'), icono: 'pi-headphones',
     })
   }
 }

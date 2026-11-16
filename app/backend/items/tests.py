@@ -321,7 +321,7 @@ class ErroresTests(TestCase):
                 )
 
         self.assertEqual(respuesta.status_code, 500)
-        self.assertEqual(self.primer_error(respuesta)['detail'], f'Server Error (500) (ref. {ref})')
+        self.assertEqual(self.primer_error(respuesta)['detail'], f'Se ha producido un error en el servidor. (ref. {ref})')
         self.assertIn(ref, log.output[0])
 
     def test_una_referencia_con_formato_raro_se_ignora(self, *_):
@@ -332,5 +332,25 @@ class ErroresTests(TestCase):
                     HTTP_X_REQUEST_ID='falso\nERROR linea inventada',
                 )
 
-        self.assertEqual(self.primer_error(respuesta)['detail'], 'Server Error (500)')
+        self.assertEqual(self.primer_error(respuesta)['detail'], 'Se ha producido un error en el servidor.')
         self.assertNotIn('inventada', log.output[0])
+
+
+@override_settings(CUOTA_USUARIO_BYTES=20 * 1024 ** 3, LIMITE_FICHERO_BYTES=2 * 1024 ** 3)
+class MensajesCuotaTests(TestCase):
+    """Los mensajes de cuota los lee el usuario: tamaños en MB/GB, no en bytes."""
+
+    def setUp(self):
+        self.usuario = Usuario.objects.create_user(email='cuota@prueba.com', password='Prueba1234!')
+
+    def test_sin_espacio_dice_cuanto_queda_en_unidades_legibles(self):
+        usado = 20 * 1024 ** 3 - 1024 ** 2
+        with mock.patch.object(ItemService, 'espacio_usado', return_value=usado):
+            with self.assertRaises(CuotaExcedida) as error:
+                ItemService.comprobar_cuota(self.usuario, 2 * 1024 ** 2)
+        self.assertEqual(error.exception.mensaje, 'Sin espacio: quedan 1,0\xa0MB libres de 20,0\xa0GB.')
+
+    def test_fichero_demasiado_grande_dice_el_maximo_en_unidades_legibles(self):
+        with self.assertRaises(CuotaExcedida) as error:
+            ItemService.comprobar_cuota(self.usuario, 3 * 1024 ** 3)
+        self.assertEqual(error.exception.mensaje, 'El archivo supera el máximo de 2,0\xa0GB por fichero.')
