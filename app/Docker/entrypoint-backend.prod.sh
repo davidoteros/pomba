@@ -3,6 +3,12 @@ set -e
 
 cd /app
 
+
+if [ "$DJANGO_SETTINGS_MODULE" != "core.settings.production" ]; then
+    echo "ERROR: DJANGO_SETTINGS_MODULE vale '$DJANGO_SETTINGS_MODULE' y en producción debe ser core.settings.production. Quítalo del .env." >&2
+    exit 1
+fi
+
 echo "Aplicando migraciones..."
 python manage.py migrate --noinput
 

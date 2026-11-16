@@ -8,11 +8,12 @@ from botocore.exceptions import EndpointConnectionError
 from django.contrib.auth import get_user_model
 from django.core.management import CommandError, call_command
 from django.db import connection
-from django.test import TestCase, TransactionTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 from django_elasticsearch_dsl.registries import registry
 from rest_framework.test import APIClient
 
+from items.extractors import extraer
 from items.models import Item, SubidaPendiente
 from items.services import BorradoGarageFallido, CuotaExcedida, ItemService
 
@@ -354,3 +355,14 @@ class MensajesCuotaTests(TestCase):
         with self.assertRaises(CuotaExcedida) as error:
             ItemService.comprobar_cuota(self.usuario, 3 * 1024 ** 3)
         self.assertEqual(error.exception.mensaje, 'El archivo supera el máximo de 2,0\xa0GB por fichero.')
+
+
+class LogInyeccionTests(SimpleTestCase):
+    """Un dato del cliente con saltos de línea no puede partir una línea del log."""
+
+    def test_mime_con_salto_de_linea_queda_en_una_linea(self):
+        mime = 'image/png;\nCRITICAL users.views Login correcto del admin'
+        with self.assertLogs('items.extractors', level='WARNING') as logs:
+            extraer(b'esto no es un png', mime, 17)
+        self.assertEqual(len(logs.records), 1)
+        self.assertNotIn('\n', logs.records[0].getMessage())

@@ -849,7 +849,7 @@ class ItemService:
 
             ItemDocument().update(item)
         except Exception as e:
-            logger.warning("No se pudo indexar item %s: %s", item.id, e)
+            logger.warning("No se pudo indexar item %s: %r", item.id, e)
 
     @staticmethod
     def procesar_item_subido(item):
@@ -892,7 +892,7 @@ class ItemService:
             Item.objects.filter(pk=item.pk).update(preview_key=key)
             item.preview_key = key
         except Exception as e:
-            logger.warning("No se pudo generar preview de item %s: %s", item.id, e)
+            logger.warning("No se pudo generar preview de item %s: %r", item.id, e)
             ItemService._marcar_preview_fallida(item)
 
     @staticmethod
