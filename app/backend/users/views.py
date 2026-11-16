@@ -21,6 +21,8 @@ from .serializers import (
     UserSerializer,
     UserProfileSerializer,
     UpdateProfileSerializer,
+    PasswordActualSerializer,
+    CambiarEmailSerializer,
     ChangePasswordSerializer,
     ProfilePhotoSerializer,
 )
@@ -82,9 +84,16 @@ class RegisterView(generics.CreateAPIView):
     throttle_scope = 'registro'
 
 
-# GET: perfil del usuario. PATCH: actualiza nombre/apellidos/email. DELETE: elimina cuenta.
+# GET: perfil del usuario. PATCH: actualiza nombre/apellidos/tema. DELETE: elimina cuenta.
 class MeView(APIView):
     permission_classes = [IsAuthenticated]
+    throttle_scope = 'password_actual'
+
+    # Solo DELETE pide la contraseña: GET y PATCH no gastan intentos
+    def get_throttles(self):
+        if self.request.method == 'DELETE':
+            return [ScopedRateThrottle()]
+        return super().get_throttles()
 
     @extend_schema(responses=UserProfileSerializer)
     def get(self, request):
@@ -103,8 +112,9 @@ class MeView(APIView):
         serializador.save()
         return Response(UserProfileSerializer(request.user, context={"request": request}).data)
 
-    @extend_schema(request=None, responses={204: None, 503: None})
+    @extend_schema(request=PasswordActualSerializer, responses={204: None, 503: None})
     def delete(self, request):
+        PasswordActualSerializer(data=request.data, context={"request": request}).is_valid(raise_exception=True)
         usuario = request.user
         # Garage primero: si falla, la cuenta sigue entera y se puede reintentar
         claves = ItemService.claves_del_usuario(usuario)
@@ -124,11 +134,26 @@ class MeView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+# Cambia el email (con el que se entra) pidiendo la contraseña actual
+class CambiarEmailView(APIView):
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'password_actual'
+
+    @extend_schema(request=CambiarEmailSerializer, responses=UserProfileSerializer)
+    def post(self, request):
+        serializador = CambiarEmailSerializer(data=request.data, context={"request": request})
+        serializador.is_valid(raise_exception=True)
+        request.user.email = serializador.validated_data["email_nuevo"]
+        request.user.save(update_fields=["email"])
+        return Response(UserProfileSerializer(request.user, context={"request": request}).data)
+
+
 # Cambia la contraseña del usuario autenticado
 class ChangePasswordView(APIView):
     permission_classes = [IsAuthenticated]
     throttle_classes = [ScopedRateThrottle]
-    throttle_scope = 'cambiar_password'
+    throttle_scope = 'password_actual'
 
     @extend_schema(
         request=ChangePasswordSerializer,

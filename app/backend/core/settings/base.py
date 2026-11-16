@@ -191,7 +191,8 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         'login': '5/min',
         'registro': '3/hour',
-        'cambiar_password': '5/hour',
+        # Cambiar contraseña, cambiar email y borrar cuenta comparten contador
+        'password_actual': '5/hour',
     },
 }
 

@@ -115,7 +115,10 @@ class SesionesTests(TestCase):
         cliente = self.cliente()
         self.login(cliente)
         sessionid = cliente.cookies['sessionid'].value
-        respuesta = cliente.delete('/api/user/me/', HTTP_X_CSRFTOKEN=self.csrf(cliente))
+        respuesta = cliente.delete(
+            '/api/user/me/', {'password_actual': PASSWORD}, format='json',
+            HTTP_X_CSRFTOKEN=self.csrf(cliente),
+        )
         self.assertEqual(respuesta.status_code, 204)
         self.assertFalse(Usuario.objects.filter(email=EMAIL).exists())
         cliente.cookies['sessionid'] = sessionid
@@ -167,6 +170,87 @@ class SesionesTests(TestCase):
         self.assertEqual(respuesta.status_code, 204)
 
 
+class PasswordActualTests(TestCase):
+    """Cambiar el email y borrar la cuenta piden la contraseña actual (punto 17)."""
+
+    def setUp(self):
+        cache.clear()
+        self.usuario = Usuario.objects.create_user(email=EMAIL, password=PASSWORD)
+        self.cliente = APIClient()
+        self.cliente.force_login(self.usuario)
+
+    def cambiar_email(self, email_nuevo, password=PASSWORD):
+        return self.cliente.post(
+            '/api/user/me/cambiar-email/',
+            {'email_nuevo': email_nuevo, 'password_actual': password},
+            format='json',
+        )
+
+    def email_actual(self):
+        self.usuario.refresh_from_db()
+        return self.usuario.email
+
+    def campo_del_error(self, respuesta):
+        return respuesta.json()['errors'][0]['attr']
+
+    def test_cambiar_email_con_la_password_buena(self):
+        respuesta = self.cambiar_email('nuevo@pomba.test')
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(respuesta.json()['email'], 'nuevo@pomba.test')
+        self.assertEqual(self.email_actual(), 'nuevo@pomba.test')
+
+    def test_cambiar_email_con_la_password_mala(self):
+        respuesta = self.cambiar_email('nuevo@pomba.test', password='Incorrecta1234!')
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertEqual(self.campo_del_error(respuesta), 'password_actual')
+        self.assertEqual(self.email_actual(), EMAIL)
+
+    def test_cambiar_email_a_uno_que_ya_existe(self):
+        Usuario.objects.create_user(email='otro@pomba.test', password=PASSWORD)
+        respuesta = self.cambiar_email('otro@pomba.test')
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertEqual(self.campo_del_error(respuesta), 'email_nuevo')
+        self.assertEqual(self.email_actual(), EMAIL)
+
+    def test_patch_de_me_ya_no_cambia_el_email(self):
+        respuesta = self.cliente.patch(
+            '/api/user/me/', {'nombre': 'Nuevo', 'email': 'nuevo@pomba.test'}, format='json'
+        )
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(respuesta.json()['nombre'], 'Nuevo')
+        self.assertEqual(self.email_actual(), EMAIL)
+
+    def test_borrar_cuenta_con_la_password_mala(self):
+        respuesta = self.cliente.delete(
+            '/api/user/me/', {'password_actual': 'Incorrecta1234!'}, format='json'
+        )
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertEqual(self.campo_del_error(respuesta), 'password_actual')
+        self.assertTrue(Usuario.objects.filter(pk=self.usuario.pk).exists())
+
+    def test_borrar_cuenta_sin_password(self):
+        respuesta = self.cliente.delete('/api/user/me/')
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertTrue(Usuario.objects.filter(pk=self.usuario.pk).exists())
+
+    def test_limite_compartido_de_intentos_con_la_password(self):
+        # Las tres rutas que piden la contraseña suman en el mismo contador
+        mala = {'password_actual': 'Incorrecta1234!'}
+        for _ in range(2):
+            self.assertEqual(self.cambiar_email('nuevo@pomba.test', password='Incorrecta1234!').status_code, 400)
+        for _ in range(2):
+            self.assertEqual(self.cliente.delete('/api/user/me/', mala, format='json').status_code, 400)
+        cambio = self.cliente.post(
+            '/api/user/me/cambiar-password/', {**mala, 'password_nuevo': 'OtraClave5678!'}, format='json'
+        )
+        self.assertEqual(cambio.status_code, 400)
+        self.assertEqual(self.cambiar_email('nuevo@pomba.test').status_code, 429)
+        self.assertEqual(self.email_actual(), EMAIL)
+        # Leer y editar el perfil no gastan intentos
+        self.assertEqual(self.cliente.get('/api/user/me/').status_code, 200)
+        self.assertEqual(self.cliente.patch('/api/user/me/', {'nombre': 'X'}, format='json').status_code, 200)
+
+
 
 # Garage y Elasticsearch son los de desarrollo: se sustituyen por falsos para no tocar datos reales
 @mock.patch.object(registry, 'delete_related')
@@ -198,7 +282,7 @@ class BorrarCuentaTests(TestCase):
         return set(Item.objects.filter(usuario=u).values_list('pk', flat=True))
 
     def borrar(self):
-        return self.cliente.delete('/api/user/me/')
+        return self.cliente.delete('/api/user/me/', {'password_actual': PASSWORD}, format='json')
 
     def claves_borradas(self, s3):
         llamadas = s3.return_value.delete_objects.call_args_list

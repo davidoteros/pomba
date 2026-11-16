@@ -92,10 +92,6 @@
         <label class="text-sm font-medium text-surface-700 dark:text-surface-300">Apellidos</label>
         <InputText v-model="formularioDatos.apellidos" placeholder="Tus apellidos" />
       </div>
-      <div class="flex flex-col gap-1">
-        <label class="text-sm font-medium text-surface-700 dark:text-surface-300">Correo electrónico</label>
-        <InputText v-model="formularioDatos.email" placeholder="tu@email.com" type="email" />
-      </div>
 
       <Message v-if="exitoDatos" severity="success" :closable="false">
         Datos actualizados correctamente.
@@ -111,6 +107,39 @@
           :loading="cargandoDatos"
           @click="guardarDatos"
         />
+      </div>
+
+      <!-- Cambiar el email pide la contraseña: es con lo que se entra -->
+      <div class="flex flex-col gap-4 border-t border-surface-200 dark:border-surface-700 pt-4">
+        <div>
+          <p class="text-sm font-medium text-surface-700 dark:text-surface-300">Correo electrónico</p>
+          <p class="text-xs text-surface-500">Ahora: {{ userStore.perfil.email }}</p>
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="text-sm font-medium text-surface-700 dark:text-surface-300">Email nuevo</label>
+          <InputText v-model="formularioEmail.nuevo" placeholder="tu@email.com" type="email" maxlength="150" />
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="text-sm font-medium text-surface-700 dark:text-surface-300">Contraseña actual</label>
+          <Password v-model="formularioEmail.password" :feedback="false" toggleMask fluid />
+        </div>
+
+        <Message v-if="exitoEmail" severity="success" :closable="false">
+          Email cambiado correctamente.
+        </Message>
+        <Message v-if="errorEmail" severity="error" :closable="false">
+          {{ errorEmail }}
+        </Message>
+
+        <div class="flex justify-end">
+          <Button
+            label="Cambiar email"
+            icon="pi pi-envelope"
+            :disabled="!formularioEmail.nuevo || !formularioEmail.password"
+            :loading="cargandoEmail"
+            @click="guardarEmail"
+          />
+        </div>
       </div>
     </div>
 
@@ -166,13 +195,17 @@
           Escribe <strong>ELIMINAR</strong> para confirmar:
         </p>
         <InputText v-model="textoConfirmacion" placeholder="ELIMINAR" />
+        <div class="flex flex-col gap-1">
+          <label class="text-sm text-surface-700 dark:text-surface-300">Contraseña actual</label>
+          <Password v-model="passwordEliminar" :feedback="false" toggleMask fluid />
+        </div>
         <div class="flex gap-3 justify-end">
-          <Button label="Cancelar" severity="secondary" @click="confirmarEliminar = false; textoConfirmacion = ''" />
+          <Button label="Cancelar" severity="secondary" @click="confirmarEliminar = false; textoConfirmacion = ''; passwordEliminar = ''" />
           <Button
             label="Eliminar cuenta"
             icon="pi pi-trash"
             severity="danger"
-            :disabled="textoConfirmacion !== 'ELIMINAR'"
+            :disabled="textoConfirmacion !== 'ELIMINAR' || !passwordEliminar"
             :loading="cargandoEliminar"
             @click="eliminarCuenta"
           />
@@ -217,7 +250,6 @@ const tabActiva = ref('foto')
 watch(() => userStore.perfil, (valor) => {
   formularioDatos.value.nombre    = valor.nombre || ''
   formularioDatos.value.apellidos = valor.apellidos || ''
-  formularioDatos.value.email     = valor.email || ''
 })
 
 // === FOTO ==============================
@@ -260,7 +292,6 @@ const guardarFoto = async () => {
 const formularioDatos = ref({
   nombre: userStore.perfil.nombre || '',
   apellidos: userStore.perfil.apellidos || '',
-  email: userStore.perfil.email || '',
 })
 const cargandoDatos = ref(false)
 const exitoDatos    = ref(false)
@@ -278,6 +309,31 @@ const guardarDatos = async () => {
     errorDatos.value = getErrorMessage(e)
   } finally {
     cargandoDatos.value = false
+  }
+}
+
+// === EMAIL ======================================
+const formularioEmail = ref({ nuevo: '', password: '' })
+const cargandoEmail   = ref(false)
+const exitoEmail      = ref(false)
+const errorEmail      = ref('')
+
+const guardarEmail = async () => {
+  cargandoEmail.value = true
+  errorEmail.value = ''
+  exitoEmail.value = false
+  try {
+    const actualizado = await apiUsers.cambiarEmail(
+      formularioEmail.value.nuevo,
+      formularioEmail.value.password,
+    )
+    userStore.actualizarPerfil(actualizado)
+    exitoEmail.value = true
+    formularioEmail.value = { nuevo: '', password: '' }
+  } catch (e) {
+    errorEmail.value = getErrorMessage(e)
+  } finally {
+    cargandoEmail.value = false
   }
 }
 
@@ -312,6 +368,7 @@ const guardarContrasena = async () => {
 // === ELIMINAR CUENTA ===========================
 const confirmarEliminar = ref(false)
 const textoConfirmacion = ref('')
+const passwordEliminar  = ref('')
 const cargandoEliminar  = ref(false)
 const errorEliminar     = ref('')
 
@@ -319,7 +376,7 @@ const eliminarCuenta = async () => {
   cargandoEliminar.value = true
   errorEliminar.value = ''
   try {
-    await apiUsers.eliminarCuenta()
+    await apiUsers.eliminarCuenta(passwordEliminar.value)
     // El backend ya cerró la sesión
     userStore.olvidarSesion()
     router.push('/')
@@ -340,11 +397,15 @@ watch(visible, (valor) => {
     errorFoto.value = ''
     exitoDatos.value = false
     errorDatos.value = ''
+    formularioEmail.value = { nuevo: '', password: '' }
+    exitoEmail.value = false
+    errorEmail.value = ''
     formularioContrasena.value = { actual: '', nueva: '', confirmar: '' }
     exitoContrasena.value = false
     errorContrasena.value = ''
     confirmarEliminar.value = false
     textoConfirmacion.value = ''
+    passwordEliminar.value = ''
     errorEliminar.value = ''
   }
 })

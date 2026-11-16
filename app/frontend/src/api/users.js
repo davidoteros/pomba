@@ -8,7 +8,7 @@ export const apiUsers = {
     return data;
   },
 
-  /* Actualiza nombre, apellidos o email*/
+  /* Actualiza nombre, apellidos o tema */
   async actualizarPerfil(datos) {
     const { data } = await api.patch('user/me/', datos);
     return data;
@@ -20,6 +20,15 @@ export const apiUsers = {
     datos.append('foto_perfil', archivo);
     const { data } = await api.post('user/me/foto/', datos, {
       headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data;
+  },
+
+  /* Cambia el email; pide la contraseña actual */
+  async cambiarEmail(emailNuevo, contrasenaActual) {
+    const { data } = await api.post('user/me/cambiar-email/', {
+      email_nuevo: emailNuevo,
+      password_actual: contrasenaActual,
     });
     return data;
   },
@@ -38,8 +47,8 @@ export const apiUsers = {
     await api.patch('user/me/', { tema });
   },
 
-  /* Elimina la cuenta del usuario autenticado */
-  async eliminarCuenta() {
-    await api.delete('user/me/');
+  /* Elimina la cuenta del usuario autenticado; pide la contraseña actual */
+  async eliminarCuenta(contrasenaActual) {
+    await api.delete('user/me/', { data: { password_actual: contrasenaActual } });
   },
 };

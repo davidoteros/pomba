@@ -53,35 +53,43 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
 
 class UpdateProfileSerializer(serializers.ModelSerializer):
-    """Permite actualizar nombre, apellidos, email y/o tema del usuario."""
+    """Permite actualizar nombre, apellidos y/o tema (el email va por CambiarEmailSerializer)."""
 
     class Meta:
         model = Usuario
-        fields = ("nombre", "apellidos", "email", "tema")
+        fields = ("nombre", "apellidos", "tema")
         extra_kwargs = {
             "nombre":    {"required": False},
             "apellidos": {"required": False},
-            "email":     {"required": False},
             "tema":      {"required": False},
         }
 
-    def validate_email(self, valor):
-        usuario = self.context["request"].user
-        if Usuario.objects.exclude(pk=usuario.pk).filter(email=valor).exists():
-            raise serializers.ValidationError("Este email ya está en uso.")
-        return valor
 
-
-class ChangePasswordSerializer(serializers.Serializer):
-    """Valida y cambia la contraseña del usuario."""
-    password_actual = serializers.CharField(write_only=True)
-    password_nuevo  = serializers.CharField(write_only=True)
+class PasswordActualSerializer(serializers.Serializer):
+    """Comprueba la contraseña actual antes de una acción delicada (p. ej. borrar la cuenta)."""
+    password_actual = serializers.CharField(write_only=True, trim_whitespace=False)
 
     def validate_password_actual(self, valor):
         usuario = self.context["request"].user
         if not usuario.check_password(valor):
             raise serializers.ValidationError("La contraseña actual no es correcta.")
         return valor
+
+
+class CambiarEmailSerializer(PasswordActualSerializer):
+    """Valida el email nuevo junto con la contraseña actual."""
+    email_nuevo = serializers.EmailField(max_length=150)
+
+    def validate_email_nuevo(self, valor):
+        usuario = self.context["request"].user
+        if Usuario.objects.exclude(pk=usuario.pk).filter(email=valor).exists():
+            raise serializers.ValidationError("Este email ya está en uso.")
+        return valor
+
+
+class ChangePasswordSerializer(PasswordActualSerializer):
+    """Valida y cambia la contraseña del usuario."""
+    password_nuevo  = serializers.CharField(write_only=True)
 
     def validate_password_nuevo(self, valor):
         try:
