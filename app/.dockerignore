@@ -12,6 +12,5 @@ backend/media
 Docker/.env.development
 Docker/.env.prod
 Docker/garage.toml
-Docker/datos
 **/.DS_Store
 **/*.log
