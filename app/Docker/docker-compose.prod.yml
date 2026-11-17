@@ -3,7 +3,6 @@ services:
   # --- PROXY INVERSO ---
   nginx:
     image: nginx:stable-alpine
-    container_name: nginx_proxy
     restart: unless-stopped
     ports:
       - "80:80"
@@ -29,13 +28,14 @@ services:
     build:
       context: ..
       dockerfile: Docker/Dockerfile.backend.prod
-    container_name: django_backend
     restart: unless-stopped
     env_file: .env.prod
     depends_on:
       db:
         condition: service_healthy
       elasticsearch:
+        condition: service_healthy
+      garage:
         condition: service_healthy
     networks:
       - appnet
@@ -45,7 +45,6 @@ services:
     build:
       context: ..
       dockerfile: Docker/Dockerfile.frontend.prod
-    container_name: vue_frontend
     restart: unless-stopped
     networks:
       - appnet
@@ -53,7 +52,6 @@ services:
   # --- POSTGRESQL ---
   db:
     image: postgres:16
-    container_name: postgres_db
     restart: unless-stopped
     env_file: .env.prod
     volumes:
@@ -68,14 +66,25 @@ services:
 
   # --- GARAGE S3 ---
   garage:
-    image: dxflrs/garage:v2.0.0
-    container_name: garage
+    image: dxflrs/garage:v2.5.0
     restart: unless-stopped
-    env_file: .env.prod
+    # Se configura solo al arrancar: layout de un nodo, bucket y clave sacados del .env
+    command: ["/garage", "server", "--single-node", "--default-bucket"]
+    environment:
+      GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET}
+      GARAGE_DEFAULT_ACCESS_KEY: ${AWS_ACCESS_KEY_ID}
+      GARAGE_DEFAULT_SECRET_KEY: ${AWS_SECRET_ACCESS_KEY}
+      GARAGE_DEFAULT_BUCKET: ${AWS_STORAGE_BUCKET_NAME}
     volumes:
       - garage_meta:/var/lib/garage/meta
-      - garage_data:/var/lib/garage/data
-      - ./garage.toml:/etc/garage.toml:ro
+      # Los ficheros, en la carpeta o disco que elijas
+      - ${POMBA_DATOS:-./datos}:/var/lib/garage/data
+      - ./garage.prod.toml:/etc/garage.toml:ro
+    healthcheck:
+      test: ["CMD", "/garage", "status"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     # Sin puertos: solo accesible por la red interna appnet
     networks:
       - appnet
@@ -83,7 +92,6 @@ services:
   # --- ELASTICSEARCH (heap reducido para 4 GB RAM igual toca modificar) ---
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:9.0.0
-    container_name: elasticsearch
     restart: unless-stopped
     environment:
       - discovery.type=single-node
@@ -110,4 +118,3 @@ volumes:
   postgres_data:
   es_data:
   garage_meta:
-  garage_data:

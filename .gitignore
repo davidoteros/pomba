@@ -22,6 +22,7 @@ app/Docker/garage.toml
 
 # --- DOCKER ---
 postgres_data/
+app/Docker/datos/
 .docker/
 docker-compose.override.yml
 
