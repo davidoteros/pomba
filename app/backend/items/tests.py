@@ -3,6 +3,7 @@ import time
 from datetime import timedelta
 from io import StringIO
 from unittest import mock
+from urllib.parse import parse_qs, urlsplit
 
 from botocore.exceptions import EndpointConnectionError
 from django.contrib.auth import get_user_model
@@ -366,3 +367,80 @@ class LogInyeccionTests(SimpleTestCase):
             extraer(b'esto no es un png', mime, 17)
         self.assertEqual(len(logs.records), 1)
         self.assertNotIn('\n', logs.records[0].getMessage())
+
+
+@mock.patch.object(registry, 'delete_related')
+@mock.patch.object(registry, 'update_related')
+@mock.patch.object(registry, 'update')
+@mock.patch.object(registry, 'delete')
+@mock.patch('items.services.ItemService.get_s3_client')
+class NombreItemTests(TestCase):
+    """El nombre acaba como ruta en el ZIP y en la cabecera de descarga: sin barras, puntos sueltos ni control."""
+
+    PROHIBIDOS = ['.', '..', 'a/b', '../../.bashrc', 'a\\b', 'a\nb', 'a\tb', 'a\x7fb']
+
+    def setUp(self):
+        self.usuario = Usuario.objects.create_user(email='nombres@prueba.com', password='Prueba1234!')
+        self.cliente = APIClient()
+        self.cliente.force_authenticate(self.usuario)
+
+    def attr(self, respuesta):
+        return respuesta.json()['errors'][0]['attr']
+
+    def test_crear_carpeta_con_nombre_prohibido_da_400(self, *_):
+        for nombre in self.PROHIBIDOS:
+            with self.subTest(nombre=nombre):
+                respuesta = self.cliente.post('/api/items/', {'nombre': nombre, 'tipo': 'carpeta'}, format='json')
+                self.assertEqual(respuesta.status_code, 400)
+                self.assertEqual(self.attr(respuesta), 'nombre')
+        self.assertFalse(Item.objects.exists())
+
+    def test_renombrar_con_ruta_da_400_y_no_cambia(self, *_):
+        item = Item.objects.create(usuario=self.usuario, nombre='A', tipo=Item.Tipo.CARPETA)
+        for nombre in self.PROHIBIDOS:
+            with self.subTest(nombre=nombre):
+                respuesta = self.cliente.post(f'/api/items/{item.id}/renombrar/', {'nombre': nombre}, format='json')
+                self.assertEqual(respuesta.status_code, 400)
+        item.refresh_from_db()
+        self.assertEqual(item.nombre, 'A')
+
+    def test_subir_con_nombre_prohibido_se_rechaza_antes_de_tocar_garage(self, *_):
+        with mock.patch.object(ItemService, 'entregar_pase_subida') as pase:
+            respuesta = self.cliente.post(
+                '/api/items/solicitar_subida/', {'nombre': '../x.txt', 'tamano_bytes': 1}, format='json',
+            )
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertEqual(self.attr(respuesta), 'nombre')
+        pase.assert_not_called()
+
+        with mock.patch.object(ItemService, 'validar_key_subida') as validar:
+            respuesta = self.cliente.post(
+                '/api/items/confirmar_subida/', {'nombre': 'a/b.txt', 'key': 'files/x.txt'}, format='json',
+            )
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertEqual(self.attr(respuesta), 'nombre')
+        validar.assert_not_called()
+
+    def test_subir_carpeta_con_parte_prohibida_no_crea_nada(self, *_):
+        respuesta = self.cliente.post(
+            '/api/items/crear_arbol_carpetas/', {'rutas': ['A', 'A/..']}, format='json',
+        )
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertFalse(Item.objects.exists())
+
+    def test_subir_carpeta_quita_los_espacios_de_los_extremos(self, *_):
+        respuesta = self.cliente.post(
+            '/api/items/crear_arbol_carpetas/', {'rutas': ['fotos ', 'fotos / viaje']}, format='json',
+        )
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(set(respuesta.json()['mapa']), {'fotos ', 'fotos / viaje'})
+        self.assertEqual(sorted(Item.objects.values_list('nombre', flat=True)), ['fotos', 'viaje'])
+
+    def test_cabecera_de_descarga_escapa_el_nombre(self, *_):
+        item = Item(usuario=self.usuario, nombre='canción "x".mp3', tipo=Item.Tipo.ARCHIVO, file='files/x.mp3')
+        version = mock.Mock(file='files/v/x.mp3')
+        esperada = "attachment; filename*=utf-8''canci%C3%B3n%20%22x%22.mp3"
+        for url in (ItemService.generar_url_descarga(item),
+                    ItemService.generar_url_descarga_version(version, item.nombre)):
+            cabecera = parse_qs(urlsplit(url).query)['response-content-disposition'][0]
+            self.assertEqual(cabecera, esperada)

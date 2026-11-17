@@ -18,6 +18,7 @@ from django.db import transaction
 from django.db.models import Exists, Max, OuterRef, Sum
 from django.template.defaultfilters import filesizeformat
 from django.utils import timezone
+from django.utils.http import content_disposition_header
 
 from .documents import ItemDocument
 from .extractors import extraer
@@ -932,7 +933,7 @@ class ItemService:
             Params={
                 "Bucket": settings.AWS_STORAGE_BUCKET_NAME,
                 "Key": str(item.file),
-                "ResponseContentDisposition": f'attachment; filename="{item.nombre}"',
+                "ResponseContentDisposition": content_disposition_header(True, item.nombre),
             },
             ExpiresIn=300,
         )
@@ -961,7 +962,7 @@ class ItemService:
         params = {
             "Bucket": settings.AWS_STORAGE_BUCKET_NAME,
             "Key": str(item.file),
-            "ResponseContentDisposition": f'inline; filename="{item.nombre}"',
+            "ResponseContentDisposition": content_disposition_header(False, item.nombre),
             # Forzamos el tipo validado; nunca dejamos que Garage use la etiqueta
             # que puso el cliente al subir.
             "ResponseContentType": mime,
@@ -998,7 +999,7 @@ class ItemService:
             Params={
                 "Bucket": settings.AWS_STORAGE_BUCKET_NAME,
                 "Key": item.preview_key,
-                "ResponseContentDisposition": f'inline; filename="{item.nombre}.png"',
+                "ResponseContentDisposition": content_disposition_header(False, f"{item.nombre}.png"),
                 "ResponseContentType": "image/png",
             },
             ExpiresIn=300,
@@ -1213,7 +1214,7 @@ class ItemService:
             Params={
                 "Bucket": settings.AWS_STORAGE_BUCKET_NAME,
                 "Key": version.file,
-                "ResponseContentDisposition": f'attachment; filename="{nombre_item}"',
+                "ResponseContentDisposition": content_disposition_header(True, nombre_item),
             },
             ExpiresIn=300,
         )

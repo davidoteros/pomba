@@ -9,6 +9,7 @@ import Popover from 'primevue/popover'
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
+import Message from 'primevue/message'
 import Divider from 'primevue/divider'
 
 
@@ -18,6 +19,7 @@ const router = useRouter()
 const { confirmar } = useConfirmacion()
 
 const inputNuevaCarpeta = ref('')
+const errorNuevaCarpeta = ref('')
 const popoverBreadcrumb = ref()
 
 function togglePopoverBreadcrumb(event) {
@@ -88,12 +90,13 @@ function cargarDesdeRuta() {
 function cerrarModal() {
   gestor.cerrarModal()
   inputNuevaCarpeta.value = ''
+  errorNuevaCarpeta.value = ''
 }
 
 async function crearCarpeta() {
   const idPadre = route.params.folderId || null
-  const exito = await gestor.crearCarpeta({ nombre: inputNuevaCarpeta.value, tipo: 'carpeta', padre: idPadre })
-  if (exito) {
+  errorNuevaCarpeta.value = await gestor.crearCarpeta({ nombre: inputNuevaCarpeta.value, tipo: 'carpeta', padre: idPadre }) || ''
+  if (!errorNuevaCarpeta.value) {
     cerrarModal()
     await cargarDesdeRuta()
   }
@@ -317,9 +320,13 @@ watch(
           class="flex-auto"
           autocomplete="off"
           placeholder="Nombre de la carpeta"
+          maxlength="255"
+          :invalid="!!errorNuevaCarpeta"
+          @input="errorNuevaCarpeta = ''"
           @keyup.enter="crearCarpeta"
           autofocus
         />
+        <Message v-if="errorNuevaCarpeta" severity="error" size="small" variant="simple">{{ errorNuevaCarpeta }}</Message>
       </div>
       <template #footer>
         <Button label="Cancelar" text severity="secondary" @click="cerrarModal" />

@@ -668,7 +668,7 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
         with transaction.atomic():
             for ruta in rutas:
                 partes = ruta.split('/')
-                nombre = partes[-1]
+                nombre = partes[-1].strip()
 
                 # El padre de esta carpeta es la ruta padre dentro del mapa
                 if len(partes) == 1:

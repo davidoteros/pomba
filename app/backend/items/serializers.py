@@ -1,6 +1,6 @@
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
-from .models import Item, ItemVersion
+from .models import Item, ItemVersion, validar_nombre_item
 from .services import (
     ItemService,
     mime_previsualizable,
@@ -99,13 +99,13 @@ class ItemVersionSerializer(serializers.ModelSerializer):
 # El tamaño es obligatorio al pedir el pase: la cuota se cobra antes de firmar la  URL, porque el PUT va del navegador a Garage sin pasar por Django.
 
 class SolicitarSubidaSerializer(serializers.Serializer):
-    nombre = serializers.CharField(max_length=255, trim_whitespace=True)
+    nombre = serializers.CharField(max_length=255, trim_whitespace=True, validators=[validar_nombre_item])
     tamano_bytes = serializers.IntegerField(min_value=0)
     mime_type = serializers.CharField(max_length=100, required=False, default='application/octet-stream')
 
 
 class ConfirmarSubidaSerializer(serializers.Serializer):
-    nombre = serializers.CharField(max_length=255, trim_whitespace=True)
+    nombre = serializers.CharField(max_length=255, trim_whitespace=True, validators=[validar_nombre_item])
     key = serializers.CharField(max_length=500, trim_whitespace=True)
     padre = serializers.PrimaryKeyRelatedField(
         queryset=Item.objects.all(), required=False, allow_null=True, default=None,

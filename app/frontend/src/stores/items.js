@@ -206,18 +206,14 @@ export const useGestorItems = defineStore('items', {
 
     // === Items (Escritura) =====================================
 
+    // Formulario: devuelve el error para enseñarlo debajo de la caja (null si fue bien)
     async crearCarpeta(data) {
       try {
         await apiItems.crearCarpeta(data)
-        return true
+        return null
       } catch (error) {
-        this.agregarNotificacion({
-          id: 'crear-carpeta',
-          tipo: 'error',
-          mensaje: getErrorMessage(error),
-          icono: 'pi-folder',
-        })
-        return false
+        console.error(error)
+        return getErrorMessage(error) || 'No se pudo crear la carpeta'
       }
     },
 
@@ -385,10 +381,11 @@ export const useGestorItems = defineStore('items', {
       }
     },
 
+    // Formulario: devuelve el error para enseñarlo debajo de la caja (null si fue bien)
     async renombrarItem(id, nombre) {
       try {
-        await apiItems.renombrar(id, nombre)
-        this.actualizarItemsLocal([id], { nombre })
+        const { nombre: nombreGuardado } = await apiItems.renombrar(id, nombre)
+        this.actualizarItemsLocal([id], { nombre: nombreGuardado })
         this.agregarNotificacion({
           id: 'renombrar',
           tipo: 'exito',
@@ -396,16 +393,10 @@ export const useGestorItems = defineStore('items', {
           icono: 'pi-pencil',
           severidad: 'neutro',
         })
-        return true
+        return null
       } catch (error) {
-        const mensaje = getErrorMessage(error) || 'No se pudo renombrar el elemento'
-        this.agregarNotificacion({
-          id: 'renombrar',
-          tipo: 'error',
-          mensaje,
-          icono: 'pi-times',
-        })
-        return false
+        console.error(error)
+        return getErrorMessage(error) || 'No se pudo renombrar el elemento'
       }
     },
 

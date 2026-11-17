@@ -1,6 +1,23 @@
+import re
+
 from django.db import models
 from users.models import User
 from django.core.exceptions import ValidationError
+
+_CARACTERES_DE_CONTROL = re.compile(r'[\x00-\x1f\x7f]')
+
+
+def validar_nombre_item(nombre):
+    # El nombre acaba como ruta en el ZIP y en la cabecera de descarga
+    if nombre in ('.', '..'):
+        raise ValidationError('El nombre no puede ser "." ni "..".')
+    if '/' in nombre or '\\' in nombre:
+        raise ValidationError('El nombre no puede contener "/" ni "\\".')
+    if _CARACTERES_DE_CONTROL.search(nombre):
+        raise ValidationError('El nombre no puede contener saltos de línea ni caracteres de control.')
+    if nombre != nombre.strip():
+        raise ValidationError('El nombre no puede empezar ni acabar con espacios.')
+
 
 def upload_item_path(instance, filename):
     return f"users/{instance.usuario.id}/{filename}"
@@ -12,7 +29,7 @@ class Item(models.Model):
         ARCHIVO = "archivo", "Archivo"
         CARPETA = "carpeta", "Carpeta"
 
-    nombre = models.CharField(max_length=255)
+    nombre = models.CharField(max_length=255, validators=[validar_nombre_item])
     tipo = models.CharField(max_length=10, choices=Tipo.choices)
 
     padre = models.ForeignKey(

@@ -19,7 +19,8 @@ export const apiItems = {
   },
 
   async renombrar(id, nombre) {
-    await api.post(`items/${id}/renombrar/`, { nombre })
+    const { data } = await api.post(`items/${id}/renombrar/`, { nombre })
+    return data
   },
 
   // Pide al backend que genere una URL presignada para subir directamente al bucket.
