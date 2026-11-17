@@ -10,6 +10,12 @@ import Aura from '@primeuix/themes/aura'
 import { definePreset } from '@primeuix/themes'
 import 'primeicons/primeicons.css'
 
+// Demo de GitHub Pages: el backend falso tiene que escuchar antes de la primera petición
+if (import.meta.env.MODE === 'demo') {
+    const { arrancarDemo } = await import('./demo/arrancar.js')
+    await arrancarDemo()
+}
+
 const pinia = createPinia()
 const app = createApp(App)
 

@@ -6,7 +6,9 @@ import Components from 'unplugin-vue-components/vite';
 import {PrimeVueResolver} from '@primevue/auto-import-resolver';
 
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+  // La demo de GitHub Pages vive en /pomba/
+  base: mode === 'demo' ? '/pomba/' : '/',
   plugins: [
     vue(),
     tailwindcss(),
@@ -30,4 +32,4 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src')
     }
   }
-})
+}))

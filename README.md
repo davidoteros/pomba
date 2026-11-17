@@ -3,6 +3,9 @@
 > **Proyecto personal en desarrollo.** Pomba es mi nube privada para casa y una pieza de
 > portfolio, no un producto terminado. Puede cambiar en cualquier momento y no está pensada
 > todavía para instalarla en otros equipos.
+>
+> **[Prueba la demo](https://davidoteros.github.io/pomba/)**: el frontend de verdad con un backend falso dentro del
+> navegador. Nada se guarda: al recargar vuelve al principio.
 
 **Pomba** es una plataforma web de almacenamiento personal de ficheros, diseñada como alternativa libre y privada a servicios como Google Drive o Dropbox. Permite a los usuarios guardar, organizar y gestionar sus documentos, imágenes y archivos de audio desde el navegador, sin depender de terceros que puedan hacer uso de sus datos.
 
@@ -187,12 +190,7 @@ docker compose --env-file Docker/.env.development -f Docker/docker-compose.yml u
 
 ## Uso
 
-La aplicación está accesible en:
-
-| Servicio | URL |
-|---|---|
-| Aplicación web | [pomba.me](https://pomba.me) |
-| API Swagger | [pomba.me/api/schema/swagger/](https://pomba.me/api/schema/swagger/) |
+Demo en línea (sin backend: todo se queda en el navegador): [davidoteros.github.io/pomba](https://davidoteros.github.io/pomba/)
 
 En local (modo desarrollo):
 
