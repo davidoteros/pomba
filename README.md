@@ -1,5 +1,9 @@
 # Pomba
 
+> **Proyecto personal en desarrollo.** Pomba es mi nube privada para casa y una pieza de
+> portfolio, no un producto terminado. Puede cambiar en cualquier momento y no está pensada
+> todavía para instalarla en otros equipos.
+
 **Pomba** es una plataforma web de almacenamiento personal de ficheros, diseñada como alternativa libre y privada a servicios como Google Drive o Dropbox. Permite a los usuarios guardar, organizar y gestionar sus documentos, imágenes y archivos de audio desde el navegador, sin depender de terceros que puedan hacer uso de sus datos.
 
 El sistema ofrece autenticación con sesiones de Django (cookie HttpOnly y token CSRF), gestión de ficheros en carpetas, previsualización de contenido (PDF, imágenes y audio) y un motor de búsqueda basado en Elasticsearch que permite localizar archivos por nombre, tipo o metadatos. El almacenamiento se realiza mediante **Garage**, un sistema compatible con el protocolo S3.
