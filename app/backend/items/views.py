@@ -18,8 +18,13 @@ from django.conf import settings
 from .models import Item, ItemVersion
 from .serializers import (
     ConfirmarSubidaSerializer,
+    CrearArbolCarpetasSerializer,
+    FavoritoSerializer,
+    IdsSerializer,
     ItemSerializer,
     ItemVersionSerializer,
+    MoverSerializer,
+    RenombrarSerializer,
     SolicitarSubidaSerializer,
     VersionConfirmarSubidaSerializer,
     VersionSolicitarSubidaSerializer,
@@ -133,7 +138,7 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
     # =========================================================
 
     @extend_schema(
-        request=inline_serializer('RenombrarRequest', fields={'nombre': drf_serializers.CharField()}),
+        request=RenombrarSerializer,
         responses=inline_serializer('RenombrarResponse', fields={
             'mensaje': drf_serializers.CharField(),
             'nombre': drf_serializers.CharField(),
@@ -142,13 +147,9 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
     @action(detail=True, methods=['post'])
     def renombrar(self, request, pk=None):
         item = self.get_object()
-        nuevo_nombre = request.data.get('nombre', '').strip()
-        if not nuevo_nombre:
-            return Response(
-                {'detail': 'El nombre es obligatorio.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        item.nombre = nuevo_nombre
+        datos = RenombrarSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        item.nombre = datos.validated_data['nombre']
         ItemService.guardar_item(item)
 
         ItemService.indexar_item(item)
@@ -156,7 +157,7 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
         return Response({'mensaje': 'Renombrado correctamente', 'nombre': item.nombre})
 
     @extend_schema(
-        request=inline_serializer('FavoritoRequest', fields={'id': drf_serializers.IntegerField()}),
+        request=FavoritoSerializer,
         responses=inline_serializer('FavoritoResponse', fields={
             'detail': drf_serializers.CharField(),
             'favorito': drf_serializers.BooleanField(),
@@ -164,14 +165,10 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
     )
     @action(detail=False, methods=['post'])
     def favorito(self, request):
-        item_id = request.data.get('id')
-        if not item_id:
-            return Response(
-                {'detail': 'No se ha enviado ningún elemento.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        datos = FavoritoSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
         try:
-            nuevo_valor = ItemService.marcar_favorito(item_id=item_id, usuario=request.user)
+            nuevo_valor = ItemService.marcar_favorito(item_id=datos.validated_data['id'], usuario=request.user)
         except Item.DoesNotExist:
             return Response({'detail': 'Elemento no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
         return Response({
@@ -180,22 +177,19 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
         })
 
     @extend_schema(
-        request=inline_serializer('TrashRequest', fields={'ids': drf_serializers.ListField(child=drf_serializers.IntegerField())}),
+        request=IdsSerializer,
         responses=inline_serializer('TrashResponse', fields={'detail': drf_serializers.CharField()}),
     )
     @action(detail=False, methods=['post'])
     def trash(self, request):
-        ids = request.data.get('ids', [])
-        if not ids:
-            return Response(
-                {'detail': 'No se han enviado elementos.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        datos = IdsSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        ids = datos.validated_data['ids']
         cantidad = ItemService.mover_a_papelera(ids=ids, usuario=request.user)
         return Response({'detail': f'Se han movido {cantidad} elementos a la papelera.'})
 
     @extend_schema(
-        request=inline_serializer('EliminarDefinitivoRequest', fields={'ids': drf_serializers.ListField(child=drf_serializers.IntegerField())}),
+        request=IdsSerializer,
         responses=inline_serializer('EliminarDefinitivoResponse', fields={
             'detail': drf_serializers.CharField(),
             'deleted_count': drf_serializers.IntegerField(),
@@ -204,12 +198,9 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
     )
     @action(detail=False, methods=['delete'])
     def eliminar_definitivo(self, request):
-        ids = request.data.get('ids', [])
-        if not ids:
-            return Response(
-                {'detail': 'No se han enviado elementos.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        datos = IdsSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        ids = datos.validated_data['ids']
 
         all_ids = ItemService.recolectar_descendientes_id(ids, request.user)
         ids_archivos = list(
@@ -237,40 +228,29 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
         })
 
     @extend_schema(
-        request=inline_serializer('RestaurarRequest', fields={'ids': drf_serializers.ListField(child=drf_serializers.IntegerField())}),
+        request=IdsSerializer,
         responses=inline_serializer('RestaurarResponse', fields={'detail': drf_serializers.CharField()}),
     )
     @action(detail=False, methods=['post'])
     def restaurar(self, request):
-        ids = request.data.get('ids', [])
-        if not ids:
-            return Response(
-                {'detail': 'No se han enviado elementos.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        datos = IdsSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        ids = datos.validated_data['ids']
         restaurados = ItemService.restaurar_items(ids=ids, usuario=request.user)
         return Response({'detail': f'Se han restaurado {restaurados} elementos.'})
 
     @extend_schema(
-        request=inline_serializer('MoverRequest', fields={
-            'ids': drf_serializers.ListField(child=drf_serializers.IntegerField()),
-            'destino': drf_serializers.IntegerField(allow_null=True),
-        }),
+        request=MoverSerializer,
         responses=inline_serializer('MoverResponse', fields={'detail': drf_serializers.CharField()}),
     )
     @action(detail=False, methods=['post'])
     def mover(self, request):
-        ids = request.data.get('ids', [])
-        destino_id = request.data.get('destino', None)
-
-        if not ids:
-            return Response(
-                {'detail': 'No se han enviado elementos.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        datos = MoverSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        ids, destino_id = datos.validated_data['ids'], datos.validated_data['destino']
 
         destino = None
-        if destino_id:
+        if destino_id is not None:
             try:
                 destino = Item.objects.get(
                     id=destino_id, usuario=request.user, tipo='carpeta', eliminado=False
@@ -392,17 +372,14 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
         )
 
     @extend_schema(
-        request=inline_serializer('DescargarZipRequest', fields={'ids': drf_serializers.ListField(child=drf_serializers.IntegerField())}),
+        request=IdsSerializer,
         responses={(200, 'application/zip'): OpenApiTypes.BINARY},
     )
     @action(detail=False, methods=['post'])
     def descargar(self, request):
-        ids = request.data.get('ids', [])
-        if not ids:
-            return Response(
-                {'detail': 'No se han enviado elementos.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        datos = IdsSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        ids = datos.validated_data['ids']
 
         archivos_con_ruta = ItemService.recolectar_archivos_para_zip(
             root_ids=ids,
@@ -640,26 +617,21 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
-        request=inline_serializer('CrearArbolCarpetasRequest', fields={
-            'rutas': drf_serializers.ListField(child=drf_serializers.CharField()),
-            'padre': drf_serializers.IntegerField(required=False, allow_null=True),
-        }),
+        request=CrearArbolCarpetasSerializer,
         responses=inline_serializer('CrearArbolCarpetasResponse', fields={
             'mapa': drf_serializers.DictField(child=drf_serializers.IntegerField()),
         }),
     )
     @action(detail=False, methods=['post'])
     def crear_arbol_carpetas(self, request):
-        rutas = request.data.get('rutas', [])
-        padre_id = request.data.get('padre', None)
-        
-        if not rutas:
-            return Response({'mapa': {}})
-        
+        datos = CrearArbolCarpetasSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        rutas, padre_id = datos.validated_data['rutas'], datos.validated_data['padre']
+
         mapa = {}
         
         padre_raiz = None
-        if padre_id:
+        if padre_id is not None:
             try:
                 padre_raiz = Item.objects.get(id=padre_id, usuario=request.user, tipo='carpeta', eliminado=False)
             except Item.DoesNotExist:

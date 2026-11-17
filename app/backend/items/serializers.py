@@ -1,3 +1,4 @@
+from django.core.validators import RegexValidator
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from .models import Item, ItemVersion, validar_nombre_item
@@ -94,14 +95,52 @@ class ItemVersionSerializer(serializers.ModelSerializer):
 
 
 # =========================================================
+# ACCIONES SOBRE ITEMS
+# =========================================================
+
+class IdsSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1), allow_empty=False, max_length=10_000,
+    )
+
+
+class MoverSerializer(IdsSerializer):
+    destino = serializers.IntegerField(min_value=1, allow_null=True, default=None)
+
+
+class FavoritoSerializer(serializers.Serializer):
+    id = serializers.IntegerField(min_value=1)
+
+
+class RenombrarSerializer(serializers.Serializer):
+    nombre = serializers.CharField(max_length=255, validators=[validar_nombre_item])
+
+
+class CrearArbolCarpetasSerializer(serializers.Serializer):
+    # Sin recortar espacios: las rutas vuelven como claves del mapa y Vue las busca tal cual
+    rutas = serializers.ListField(
+        child=serializers.CharField(trim_whitespace=False, max_length=4096), max_length=10_000,
+    )
+    padre = serializers.IntegerField(min_value=1, allow_null=True, default=None)
+
+
+# =========================================================
 # SUBIDA PRESIGNADA
 # =========================================================
+
+validar_mime = RegexValidator(
+    r'^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*(;[ -~]*)?\Z',
+    message='Tipo MIME no válido.',
+)
+
 # El tamaño es obligatorio al pedir el pase: la cuota se cobra antes de firmar la  URL, porque el PUT va del navegador a Garage sin pasar por Django.
 
 class SolicitarSubidaSerializer(serializers.Serializer):
     nombre = serializers.CharField(max_length=255, trim_whitespace=True, validators=[validar_nombre_item])
     tamano_bytes = serializers.IntegerField(min_value=0)
-    mime_type = serializers.CharField(max_length=100, required=False, default='application/octet-stream')
+    mime_type = serializers.CharField(
+        max_length=100, required=False, default='application/octet-stream', validators=[validar_mime],
+    )
 
 
 class ConfirmarSubidaSerializer(serializers.Serializer):
@@ -110,7 +149,9 @@ class ConfirmarSubidaSerializer(serializers.Serializer):
     padre = serializers.PrimaryKeyRelatedField(
         queryset=Item.objects.all(), required=False, allow_null=True, default=None,
     )
-    mime_type = serializers.CharField(max_length=100, required=False, default='application/octet-stream')
+    mime_type = serializers.CharField(
+        max_length=100, required=False, default='application/octet-stream', validators=[validar_mime],
+    )
 
     def validate_padre(self, value):
         """La carpeta destino tiene que ser del usuario, ser carpeta y no estar en papelera."""
@@ -128,7 +169,7 @@ class VersionSolicitarSubidaSerializer(serializers.Serializer):
 
 class VersionConfirmarSubidaSerializer(serializers.Serializer):
     key = serializers.CharField(max_length=500, trim_whitespace=True)
-    mime_type = serializers.CharField(max_length=100)
+    mime_type = serializers.CharField(max_length=100, validators=[validar_mime])
 
     def validate_mime_type(self, value):
         """Las versiones son solo de audio: no permitimos convertir un audio en HTML/SVG al confirmar."""

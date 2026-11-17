@@ -16,6 +16,7 @@ from rest_framework.test import APIClient
 
 from items.extractors import extraer
 from items.models import Item, SubidaPendiente
+from items.serializers import ConfirmarSubidaSerializer, SolicitarSubidaSerializer, VersionConfirmarSubidaSerializer
 from items.services import BorradoGarageFallido, CuotaExcedida, ItemService
 
 Usuario = get_user_model()
@@ -444,3 +445,146 @@ class NombreItemTests(TestCase):
                     ItemService.generar_url_descarga_version(version, item.nombre)):
             cabecera = parse_qs(urlsplit(url).query)['response-content-disposition'][0]
             self.assertEqual(cabecera, esperada)
+
+
+@mock.patch.object(registry, 'delete_related')
+@mock.patch.object(registry, 'update_related')
+@mock.patch.object(registry, 'update')
+@mock.patch.object(registry, 'delete')
+@mock.patch('items.services.ItemService.get_s3_client')
+class EntradaAccionesTests(TestCase):
+    """Las acciones solo aceptan datos con la forma esperada: lo demás es 400 antes de tocar nada."""
+
+    IDS_MAL_FORMADOS = [
+        {'ids': '15'}, {'ids': ['abc']}, {'ids': [None]}, {'ids': [0]}, {'ids': {'x': 1}},
+        {'ids': []}, {}, {'ids': list(range(1, 10_002))},
+    ]
+    ID_MAL_FORMADOS = ['abc', 0, -1, [1], None, 1.5]
+
+    def setUp(self):
+        self.usuario = Usuario.objects.create_user(email='entrada@prueba.com', password='Prueba1234!')
+        self.cliente = APIClient(raise_request_exception=False)
+        self.cliente.force_authenticate(self.usuario)
+
+    def item(self, nombre, tipo=Item.Tipo.CARPETA, **extra):
+        return Item.objects.create(usuario=self.usuario, nombre=nombre, tipo=tipo, **extra)
+
+    def comprobar_400(self, respuesta, campo):
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertTrue(respuesta.json()['errors'][0]['attr'].startswith(campo))
+
+    def test_acciones_en_lote_con_ids_mal_formados_dan_400_sin_tocar_nada(self, *_):
+        acciones = [
+            ('post', '/api/items/restaurar/', 'restaurar_items'),
+            ('post', '/api/items/trash/', 'mover_a_papelera'),
+            ('delete', '/api/items/eliminar_definitivo/', 'recolectar_descendientes_id'),
+            ('post', '/api/items/descargar/', 'recolectar_archivos_para_zip'),
+            ('post', '/api/items/mover/', 'mover_item'),
+        ]
+        for metodo, url, servicio in acciones:
+            for cuerpo in self.IDS_MAL_FORMADOS:
+                with self.subTest(url=url, cuerpo=str(cuerpo)[:30]):
+                    with mock.patch.object(ItemService, servicio) as falso:
+                        respuesta = getattr(self.cliente, metodo)(url, cuerpo, format='json')
+                    self.comprobar_400(respuesta, 'ids')
+                    falso.assert_not_called()
+
+    def test_restaurar_con_ids_buenos_sigue_funcionando(self, *_):
+        item = self.item('f.txt', Item.Tipo.ARCHIVO, file='files/f.txt', eliminado=True)
+        respuesta = self.cliente.post('/api/items/restaurar/', {'ids': [item.id]}, format='json')
+        self.assertEqual(respuesta.status_code, 200)
+        item.refresh_from_db()
+        self.assertFalse(item.eliminado)
+
+    def test_favorito_con_id_mal_formado_da_400(self, *_):
+        for valor in self.ID_MAL_FORMADOS:
+            with self.subTest(id=valor):
+                with mock.patch.object(ItemService, 'marcar_favorito', return_value=True) as falso:
+                    respuesta = self.cliente.post('/api/items/favorito/', {'id': valor}, format='json')
+                self.comprobar_400(respuesta, 'id')
+                falso.assert_not_called()
+
+    def test_favorito_con_id_bueno_sigue_funcionando(self, *_):
+        item = self.item('A')
+        respuesta = self.cliente.post('/api/items/favorito/', {'id': item.id}, format='json')
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertTrue(respuesta.json()['favorito'])
+
+    def test_mover_con_destino_mal_formado_da_400(self, *_):
+        item = self.item('A')
+        for valor in self.ID_MAL_FORMADOS[:-2] + ['15']:
+            with self.subTest(destino=valor):
+                with mock.patch.object(ItemService, 'mover_item') as falso:
+                    respuesta = self.cliente.post(
+                        '/api/items/mover/', {'ids': [item.id], 'destino': valor}, format='json',
+                    )
+                if valor == '15':
+                    # Un número escrito como texto se acepta (como en el resto de DRF); 15 no es suyo → 404
+                    self.assertEqual(respuesta.status_code, 404)
+                else:
+                    self.comprobar_400(respuesta, 'destino')
+                falso.assert_not_called()
+
+    def test_mover_a_carpeta_y_a_la_raiz_sigue_funcionando(self, *_):
+        a, b = self.item('A'), self.item('B')
+        respuesta = self.cliente.post('/api/items/mover/', {'ids': [a.id], 'destino': b.id}, format='json')
+        self.assertEqual(respuesta.status_code, 200)
+        a.refresh_from_db()
+        self.assertEqual(a.padre_id, b.id)
+        respuesta = self.cliente.post('/api/items/mover/', {'ids': [a.id], 'destino': None}, format='json')
+        self.assertEqual(respuesta.status_code, 200)
+        a.refresh_from_db()
+        self.assertIsNone(a.padre_id)
+
+    def test_renombrar_con_nombre_mal_formado_da_400(self, *_):
+        item = self.item('A')
+        for cuerpo in [{}, {'nombre': ''}, {'nombre': '   '}, {'nombre': ['B']}, {'nombre': {'x': 1}}]:
+            with self.subTest(cuerpo=cuerpo):
+                respuesta = self.cliente.post(f'/api/items/{item.id}/renombrar/', cuerpo, format='json')
+                self.comprobar_400(respuesta, 'nombre')
+        item.refresh_from_db()
+        self.assertEqual(item.nombre, 'A')
+
+    def test_renombrar_quita_los_espacios_de_los_extremos(self, *_):
+        item = self.item('A')
+        respuesta = self.cliente.post(f'/api/items/{item.id}/renombrar/', {'nombre': '  Bien  '}, format='json')
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(respuesta.json()['nombre'], 'Bien')
+
+    def test_crear_arbol_con_datos_mal_formados_da_400_sin_crear_nada(self, *_):
+        casos = [
+            ({'rutas': 'A/B'}, 'rutas'), ({'rutas': [None]}, 'rutas'), ({'rutas': ['']}, 'rutas'),
+            ({'rutas': [['A']]}, 'rutas'), ({}, 'rutas'), ({'rutas': ['A'], 'padre': 'abc'}, 'padre'),
+            ({'rutas': ['A'], 'padre': 0}, 'padre'),
+        ]
+        for cuerpo, campo in casos:
+            with self.subTest(cuerpo=cuerpo):
+                respuesta = self.cliente.post('/api/items/crear_arbol_carpetas/', cuerpo, format='json')
+                self.comprobar_400(respuesta, campo)
+        self.assertFalse(Item.objects.exists())
+
+    def test_crear_arbol_con_lista_vacia_devuelve_mapa_vacio(self, *_):
+        respuesta = self.cliente.post('/api/items/crear_arbol_carpetas/', {'rutas': []}, format='json')
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(respuesta.json(), {'mapa': {}})
+
+    def test_subida_con_mime_mal_formado_da_400_antes_del_pase(self, *_):
+        for mime in ['image/png\nFALSO', 'png', 'image/', '/png', 'image/png/x', 'imagen/pñg', 'a b/c']:
+            with self.subTest(mime=mime):
+                with mock.patch.object(ItemService, 'entregar_pase_subida') as pase:
+                    respuesta = self.cliente.post(
+                        '/api/items/solicitar_subida/',
+                        {'nombre': 'a.png', 'tamano_bytes': 1, 'mime_type': mime}, format='json',
+                    )
+                self.comprobar_400(respuesta, 'mime_type')
+                pase.assert_not_called()
+
+    def test_mime_bien_formado_se_acepta_en_los_tres_serializers(self, *_):
+        for mime in ['image/png', 'application/vnd.ms-excel', 'image/svg+xml', 'text/plain; charset=utf-8']:
+            with self.subTest(mime=mime):
+                self.assertTrue(SolicitarSubidaSerializer(
+                    data={'nombre': 'a', 'tamano_bytes': 1, 'mime_type': mime}).is_valid())
+                self.assertTrue(ConfirmarSubidaSerializer(
+                    data={'nombre': 'a', 'key': 'files/a', 'mime_type': mime}).is_valid())
+        self.assertTrue(VersionConfirmarSubidaSerializer(data={'key': 'k', 'mime_type': 'audio/mpeg'}).is_valid())
+        self.assertFalse(VersionConfirmarSubidaSerializer(data={'key': 'k', 'mime_type': 'audio/mpeg\nX'}).is_valid())
