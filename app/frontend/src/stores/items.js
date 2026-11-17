@@ -267,6 +267,24 @@ export const useGestorItems = defineStore('items', {
       await apiItems.confirmarSubida(file.name, key, padreId, mimeType)
     },
 
+    // Abre el selector del sistema (un archivo o una carpeta) y sube lo elegido a padreId
+    elegirYSubir(tipo, padreId = null) {
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.hidden = true
+      input.webkitdirectory = tipo === 'carpeta'
+      input.addEventListener('change', () => {
+        const files = Array.from(input.files)
+        input.remove()
+        if (!files.length) return
+        if (tipo === 'carpeta') this.subirCarpeta(files, padreId)
+        else this.subirArchivo(files[0], padreId)
+      })
+      input.addEventListener('cancel', () => input.remove())
+      document.body.appendChild(input)
+      input.click()
+    },
+
     async subirArchivo(file, padreId = null) {
       const motivo = await this.motivoSinEspacio([file])
       if (motivo) {

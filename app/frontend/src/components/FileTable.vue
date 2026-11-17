@@ -149,29 +149,50 @@ async function accionMenu(event, accion, item) {
 }
 
 // === Context menu (click derecho) ===============================
-const contextMenu = ref({ visible: false, x: 0, y: 0, item: null })
+const contextMenu = ref({ visible: false, x: 0, y: 0, item: null, vacio: false })
 
-function handleContextMenu(event, item, index) {
+// Crear y subir solo tienen sentido en Mi unidad (no en favoritos, recientes, papelera ni búsqueda)
+const enMiUnidad = computed(() => route.name === 'home' && (route.params.view || 'drive') === 'drive')
+
+function abrirMenu(event, item, vacio) {
   event.preventDefault()
   menuAbierto.value = null
 
-  if (!gestor.seleccion.ids.includes(item.id)) {
-    gestor.seleccionar(item, index)
-  }
-
   const MENU_W = 176
-  const MENU_H = 230
+  const MENU_H = vacio ? 130 : 230
   const x = event.clientX + MENU_W > window.innerWidth ? event.clientX - MENU_W : event.clientX
   const y = event.clientY + MENU_H > window.innerHeight ? event.clientY - MENU_H : event.clientY
 
-  contextMenu.value = { visible: true, x, y, item }
+  contextMenu.value = { visible: true, x, y, item, vacio }
+}
+
+function handleContextMenu(event, item, index) {
+  if (!gestor.seleccion.ids.includes(item.id)) {
+    gestor.seleccionar(item, index)
+  }
+  abrirMenu(event, item, false)
+}
+
+// Clic derecho en un hueco: nueva carpeta o subir en la carpeta abierta
+function handleContextMenuVacio(event) {
+  if (!enMiUnidad.value) return
+  gestor.limpiarSeleccion()
+  abrirMenu(event, null, true)
+}
+
+function carpetaActual() {
+  return route.params.folderId ? Number(route.params.folderId) : null
 }
 
 async function accionContextMenu(accion) {
   contextMenu.value.visible = false
   const ids = gestor.seleccion.ids
 
-  if (accion === 'info') {
+  if (accion === 'nuevaCarpeta') {
+    gestor.abrirModal('crearCarpeta')
+  } else if (accion === 'subirArchivo' || accion === 'subirCarpeta') {
+    gestor.elegirYSubir(accion === 'subirCarpeta' ? 'carpeta' : 'archivo', carpetaActual())
+  } else if (accion === 'info') {
     const item = gestor.itemsSeleccionados[0]
     if (item) gestor.abrirPanelInfo(item)
   } else if (accion === 'preview') {
@@ -237,8 +258,9 @@ const emptyState = computed(() => {
 
 <template>
   <div
-    class="w-full min-h-96 select-none relative"
+    class="w-full min-h-[max(24rem,100%)] select-none relative"
     @click="handleBackgroundClick"
+    @contextmenu="handleContextMenuVacio"
   >
 
     <!-- Loading  -->
@@ -299,7 +321,7 @@ const emptyState = computed(() => {
           :tabindex="index === 0 ? 0 : -1"
           @click.stop="handleClick($event, item, index)"
           @dblclick.stop="handleDoubleClick(item)"
-          @contextmenu="handleContextMenu($event, item, index)"
+          @contextmenu.stop="handleContextMenu($event, item, index)"
           :class="[
             'group cursor-pointer transition-colors duration-100 border-b border-surface-200 dark:border-surface-800',
             estaSeleccionado(item)
@@ -461,7 +483,29 @@ const emptyState = computed(() => {
               rounded-xl shadow-lg py-1 overflow-hidden"
         :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
       >
-        <template v-if="enPapelera">
+        <template v-if="contextMenu.vacio">
+          <button
+            @click="accionContextMenu('nuevaCarpeta')"
+            class="w-full flex items-center gap-2 px-3 py-2 text-sm text-left text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors"
+          >
+            <i class="pi pi-folder text-surface-400" /> Nueva carpeta
+          </button>
+          <div class="my-1 border-t border-surface-200 dark:border-surface-800" />
+          <button
+            @click="accionContextMenu('subirArchivo')"
+            class="w-full flex items-center gap-2 px-3 py-2 text-sm text-left text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors"
+          >
+            <i class="pi pi-upload text-surface-400" /> Subir archivo
+          </button>
+          <button
+            @click="accionContextMenu('subirCarpeta')"
+            class="w-full flex items-center gap-2 px-3 py-2 text-sm text-left text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors"
+          >
+            <i class="pi pi-folder-open text-surface-400" /> Subir carpeta
+          </button>
+        </template>
+
+        <template v-else-if="enPapelera">
           <button
             @click="accionContextMenu('info')"
             class="w-full flex items-center gap-2 px-3 py-2 text-sm text-left text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors"

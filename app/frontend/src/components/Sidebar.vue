@@ -22,8 +22,6 @@ const { confirmar } = useConfirmacion()
 
 const menuPapelera = ref(null)
 const nuevoMenu = ref(null)
-const fileInput = ref(null)
-const folderInput = ref(null)
 
 // Este es el menú de acción para las pantallas táctiles (Subir archivo, subir carpeta o crear carpeta) - Con el controlamos que aparezca o no
 const fabAbierto = ref(false)
@@ -38,12 +36,12 @@ const nuevoMenuItems = [
   {
     label: 'Subir archivo',
     icon: 'pi pi-upload',
-    command: () => { fileInput.value?.click(); fabAbierto.value = false },
+    command: () => { gestor.elegirYSubir('archivo', carpetaActual()); fabAbierto.value = false },
   },
   {
     label: 'Subir carpeta',
     icon: 'pi pi-folder-open',
-    command: () => { folderInput.value?.click(); fabAbierto.value = false },
+    command: () => { gestor.elegirYSubir('carpeta', carpetaActual()); fabAbierto.value = false },
   },
 ]
 
@@ -100,22 +98,9 @@ function handleFAB(event) {
 
 function cerrarFAB() { fabAbierto.value = false }
 
-// === Subida de archivo individual ============================================
-async function subirArchivo(event) {
-  const archivo = event.target.files[0]
-  if (!archivo) return
-  const folderId = route.params.folderId ? Number(route.params.folderId) : null
-  await gestor.subirArchivo(archivo, folderId)
-  event.target.value = ''
-}
-
-// === Subida de carpeta completa ==============================================
-async function subirCarpeta(event) {
-  const files = Array.from(event.target.files)
-  if (!files.length) return
-  const folderId = route.params.folderId ? Number(route.params.folderId) : null
-  await gestor.subirCarpeta(files, folderId)
-  event.target.value = ''
+// Lo que se suba va a la carpeta abierta (o a la raíz)
+function carpetaActual() {
+  return route.params.folderId ? Number(route.params.folderId) : null
 }
 
 
@@ -125,12 +110,6 @@ function togglePanelUsuario() {
 </script>
 
 <template>
-  <!-- INPUT FILE OCULTO — Para subir archivo indivisual -->
-  <input ref="fileInput" type="file" class="hidden" @change="subirArchivo" />
-
-  <!-- INPUT FILE OCULTO — Para subir carpeta de archivos -->
-  <input ref="folderInput" type="file" class="hidden" webkitdirectory @change="subirCarpeta" />
-
   <!--  SIDEBAR DESKTOP -->
   <aside class="hidden sm:flex w-full h-full flex-col sm:items-center sm:p-1 lg:items-stretch lg:p-3">
 
