@@ -87,10 +87,13 @@ server {
     ssl_ciphers HIGH:!aNULL:!MD5;
     ssl_prefer_server_ciphers on;
 
+    # HSTS: el navegador solo entra por HTTPS durante un año (incluido www y el :3900)
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
     # El /api/ solo recibe JSON y la foto de perfil: los ficheros van por :3900 a Garage.
     client_max_body_size ${POMBA_LIMITE_API};
 
-    # API, admin y estáticos de Django
+    # API, admin y estáticos de Django (los sirve whitenoise)
     location ~ ^/(api|admin|static_backend)(/|$) {
         proxy_pass http://django;
         proxy_set_header Host $host;
@@ -106,12 +109,15 @@ server {
         proxy_request_buffering off;
     }
 
-    location /static_backend/ {
-        alias /app/staticfiles/;
-    }
-
     # Todo lo demás a través de Vue (nginx interno del contenedor frontend)
     location / {
+        # Suma estas cabeceras al HSTS del server en vez de sustituirlo
+        add_header_inherit merge;
+        # Scripts solo propios; estilos inline por PrimeVue; Garage (:3900) para ver y subir ficheros
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://pomba.me:3900; media-src 'self' blob: https://pomba.me:3900; frame-src https://pomba.me:3900; connect-src 'self' https://pomba.me:3900; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "same-origin" always;
+
         proxy_pass http://vue;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;

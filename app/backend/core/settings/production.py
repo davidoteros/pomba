@@ -29,6 +29,15 @@ SECURE_SSL_REDIRECT = True
 # Sin esto SECURE_SSL_REDIRECT entraría en bucle infinito.
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
+# HSTS lo pone Nginx para todo el dominio, no solo para lo que sirve Django
+SILENCED_SYSTEM_CHECKS = ['security.W004']
+
+# Estáticos comprimidos y con huella en el nombre, para que el navegador no los vuelva a pedir
+STORAGES = {
+    **STORAGES,
+    'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage'},
+}
+
 # La cookie de sesión solo se envía por HTTPS
 SESSION_COOKIE_SECURE = True
 

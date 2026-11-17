@@ -102,8 +102,4 @@ server {
         # Deshabilitar buffering para que los datos fluyan directamente a Django/S3
         proxy_request_buffering off;
     }
-
-    location /static_backend/ {
-       alias /app/staticfiles/;
-    }
 }
