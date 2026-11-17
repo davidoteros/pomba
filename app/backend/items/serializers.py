@@ -1,4 +1,5 @@
 from django.core.validators import RegexValidator
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from .models import Item, ItemVersion, validar_nombre_item
@@ -11,7 +12,18 @@ from .services import (
 )
 
 
+# Solo carpetas del usuario que hace la petición y fuera de la papelera:
+@extend_schema_field(OpenApiTypes.INT)
+class CarpetaDelUsuarioField(serializers.PrimaryKeyRelatedField):
+    default_error_messages = {'does_not_exist': 'Carpeta no encontrada.'}
+
+    def get_queryset(self):
+        usuario = self.context['request'].user
+        return Item.objects.filter(usuario=usuario, tipo=Item.Tipo.CARPETA, eliminado=False)
+
+
 class ItemSerializer(serializers.ModelSerializer):
+    padre = CarpetaDelUsuarioField(required=False, allow_null=True)
     tiene_hijos = serializers.BooleanField(read_only=True)
     file = serializers.FileField(allow_empty_file=True, required=False, allow_null=True)
     # Fuente de verdad para saver si algo se puede previsualizar o no (Queremos evitar inyecciones)
@@ -69,23 +81,6 @@ class ItemSerializer(serializers.ModelSerializer):
             return None
         return tipo_visor(obj.mime_type)
 
-    # Hacemos una validación basica (Esto solo se llama cuando se hace post, put o patch)
-    def validate_padre(self, value):
-
-        #Si no tiene padre, es correcto ya que es la raiz
-        if value is None:
-            return value
-        #Comprobamos que la carpeta sea del usuario que hace la petición
-        if value.usuario_id != self.context['request'].user.id:
-            raise serializers.ValidationError("Carpeta no encontrada")
-        #Comprobamos que el padre seas una carpeta
-        if value.tipo != Item.Tipo.CARPETA:
-            raise serializers.ValidationError("Debe ser carpeta")
-        #Comprobamos que no este creando sobre la papelera
-        if value.eliminado:
-            raise serializers.ValidationError("No puedes usar una carpeta en papelera")
-
-        return value
 
 
 class ItemVersionSerializer(serializers.ModelSerializer):
@@ -105,7 +100,7 @@ class IdsSerializer(serializers.Serializer):
 
 
 class MoverSerializer(IdsSerializer):
-    destino = serializers.IntegerField(min_value=1, allow_null=True, default=None)
+    destino = CarpetaDelUsuarioField(allow_null=True, default=None)
 
 
 class FavoritoSerializer(serializers.Serializer):
@@ -121,7 +116,7 @@ class CrearArbolCarpetasSerializer(serializers.Serializer):
     rutas = serializers.ListField(
         child=serializers.CharField(trim_whitespace=False, max_length=4096), max_length=10_000,
     )
-    padre = serializers.IntegerField(min_value=1, allow_null=True, default=None)
+    padre = CarpetaDelUsuarioField(allow_null=True, default=None)
 
 
 # =========================================================
@@ -146,21 +141,10 @@ class SolicitarSubidaSerializer(serializers.Serializer):
 class ConfirmarSubidaSerializer(serializers.Serializer):
     nombre = serializers.CharField(max_length=255, trim_whitespace=True, validators=[validar_nombre_item])
     key = serializers.CharField(max_length=500, trim_whitespace=True)
-    padre = serializers.PrimaryKeyRelatedField(
-        queryset=Item.objects.all(), required=False, allow_null=True, default=None,
-    )
+    padre = CarpetaDelUsuarioField(allow_null=True, default=None)
     mime_type = serializers.CharField(
         max_length=100, required=False, default='application/octet-stream', validators=[validar_mime],
     )
-
-    def validate_padre(self, value):
-        """La carpeta destino tiene que ser del usuario, ser carpeta y no estar en papelera."""
-        if value is None:
-            return value
-        usuario = self.context['request'].user
-        if value.usuario_id != usuario.id or value.tipo != Item.Tipo.CARPETA or value.eliminado:
-            raise serializers.ValidationError("Carpeta padre no encontrada.")
-        return value
 
 
 class VersionSolicitarSubidaSerializer(serializers.Serializer):

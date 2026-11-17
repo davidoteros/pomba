@@ -518,11 +518,8 @@ class EntradaAccionesTests(TestCase):
                     respuesta = self.cliente.post(
                         '/api/items/mover/', {'ids': [item.id], 'destino': valor}, format='json',
                     )
-                if valor == '15':
-                    # Un número escrito como texto se acepta (como en el resto de DRF); 15 no es suyo → 404
-                    self.assertEqual(respuesta.status_code, 404)
-                else:
-                    self.comprobar_400(respuesta, 'destino')
+                # "15" se lee como el número 15 (como en el resto de DRF), pero no es una carpeta suya
+                self.comprobar_400(respuesta, 'destino')
                 falso.assert_not_called()
 
     def test_mover_a_carpeta_y_a_la_raiz_sigue_funcionando(self, *_):
@@ -588,3 +585,86 @@ class EntradaAccionesTests(TestCase):
                     data={'nombre': 'a', 'key': 'files/a', 'mime_type': mime}).is_valid())
         self.assertTrue(VersionConfirmarSubidaSerializer(data={'key': 'k', 'mime_type': 'audio/mpeg'}).is_valid())
         self.assertFalse(VersionConfirmarSubidaSerializer(data={'key': 'k', 'mime_type': 'audio/mpeg\nX'}).is_valid())
+
+
+@mock.patch.object(registry, 'delete_related')
+@mock.patch.object(registry, 'update_related')
+@mock.patch.object(registry, 'update')
+@mock.patch.object(registry, 'delete')
+@mock.patch('items.services.ItemService.get_s3_client')
+class CarpetaDelUsuarioTests(TestCase):
+    """Crear, subir, subir carpeta y mover solo aceptan como destino una carpeta tuya fuera de la papelera."""
+
+    def setUp(self):
+        self.usuario = Usuario.objects.create_user(email='carpetas@prueba.com', password='Prueba1234!')
+        otro = Usuario.objects.create_user(email='otro@prueba.com', password='Prueba1234!')
+        self.cliente = APIClient(raise_request_exception=False)
+        self.cliente.force_authenticate(self.usuario)
+        self.buena = Item.objects.create(usuario=self.usuario, nombre='Buena', tipo=Item.Tipo.CARPETA)
+        self.item = Item.objects.create(usuario=self.usuario, nombre='Suelta', tipo=Item.Tipo.CARPETA)
+        self.no_validas = {
+            'ajena': Item.objects.create(usuario=otro, nombre='Ajena', tipo=Item.Tipo.CARPETA),
+            'papelera': Item.objects.create(
+                usuario=self.usuario, nombre='Borrada', tipo=Item.Tipo.CARPETA, eliminado=True,
+            ),
+            'fichero': Item.objects.create(
+                usuario=self.usuario, nombre='f.txt', tipo=Item.Tipo.ARCHIVO, file='files/f.txt',
+            ),
+        }
+
+    def comprobar_rechazo(self, url, cuerpo, campo):
+        respuesta = self.cliente.post(url, cuerpo, format='json')
+        self.assertEqual(respuesta.status_code, 400)
+        error = respuesta.json()['errors'][0]
+        self.assertEqual((error['attr'], error['detail']), (campo, 'Carpeta no encontrada.'))
+
+    def test_las_cuatro_acciones_rechazan_igual_una_carpeta_no_valida(self, *_):
+        total = Item.objects.count()
+        for motivo, carpeta in self.no_validas.items():
+            with self.subTest(accion='crear carpeta', motivo=motivo):
+                self.comprobar_rechazo(
+                    '/api/items/', {'nombre': 'X', 'tipo': 'carpeta', 'padre': carpeta.id}, 'padre',
+                )
+            with self.subTest(accion='subir', motivo=motivo):
+                with mock.patch.object(ItemService, 'validar_key_subida') as validar:
+                    self.comprobar_rechazo(
+                        '/api/items/confirmar_subida/',
+                        {'nombre': 'a.txt', 'key': 'files/a.txt', 'padre': carpeta.id}, 'padre',
+                    )
+                validar.assert_not_called()
+            with self.subTest(accion='subir carpeta', motivo=motivo):
+                self.comprobar_rechazo(
+                    '/api/items/crear_arbol_carpetas/', {'rutas': ['X'], 'padre': carpeta.id}, 'padre',
+                )
+            with self.subTest(accion='mover', motivo=motivo):
+                self.comprobar_rechazo(
+                    '/api/items/mover/', {'ids': [self.item.id], 'destino': carpeta.id}, 'destino',
+                )
+        self.assertEqual(Item.objects.count(), total)
+        self.item.refresh_from_db()
+        self.assertIsNone(self.item.padre_id)
+
+    def test_las_cuatro_acciones_aceptan_una_carpeta_tuya(self, *_):
+        respuesta = self.cliente.post(
+            '/api/items/', {'nombre': 'X', 'tipo': 'carpeta', 'padre': self.buena.id}, format='json',
+        )
+        self.assertEqual(respuesta.status_code, 201)
+        respuesta = self.cliente.post(
+            '/api/items/crear_arbol_carpetas/', {'rutas': ['Y'], 'padre': self.buena.id}, format='json',
+        )
+        self.assertEqual(respuesta.status_code, 200)
+        respuesta = self.cliente.post(
+            '/api/items/mover/', {'ids': [self.item.id], 'destino': self.buena.id}, format='json',
+        )
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(
+            set(Item.objects.filter(padre=self.buena).values_list('nombre', flat=True)), {'X', 'Y', 'Suelta'},
+        )
+        # Al subir, que pase de la carpeta a validar la key ya demuestra que la aceptó
+        sin_sitio = CuotaExcedida('Sin espacio', 'cuota')
+        with mock.patch.object(ItemService, 'validar_key_subida', side_effect=sin_sitio) as validar:
+            self.cliente.post(
+                '/api/items/confirmar_subida/',
+                {'nombre': 'a.txt', 'key': 'files/a.txt', 'padre': self.buena.id}, format='json',
+            )
+        validar.assert_called_once()

@@ -245,21 +245,9 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
     )
     @action(detail=False, methods=['post'])
     def mover(self, request):
-        datos = MoverSerializer(data=request.data)
+        datos = MoverSerializer(data=request.data, context={'request': request})
         datos.is_valid(raise_exception=True)
-        ids, destino_id = datos.validated_data['ids'], datos.validated_data['destino']
-
-        destino = None
-        if destino_id is not None:
-            try:
-                destino = Item.objects.get(
-                    id=destino_id, usuario=request.user, tipo='carpeta', eliminado=False
-                )
-            except Item.DoesNotExist:
-                return Response(
-                    {'detail': 'Carpeta destino no encontrada.'},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
+        ids, destino = datos.validated_data['ids'], datos.validated_data['destino']
 
         items_obj = list(Item.objects.filter(id__in=ids, usuario=request.user, eliminado=False))
         for item in items_obj:
@@ -624,19 +612,12 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
     )
     @action(detail=False, methods=['post'])
     def crear_arbol_carpetas(self, request):
-        datos = CrearArbolCarpetasSerializer(data=request.data)
+        datos = CrearArbolCarpetasSerializer(data=request.data, context={'request': request})
         datos.is_valid(raise_exception=True)
-        rutas, padre_id = datos.validated_data['rutas'], datos.validated_data['padre']
+        rutas, padre_raiz = datos.validated_data['rutas'], datos.validated_data['padre']
 
         mapa = {}
-        
-        padre_raiz = None
-        if padre_id is not None:
-            try:
-                padre_raiz = Item.objects.get(id=padre_id, usuario=request.user, tipo='carpeta', eliminado=False)
-            except Item.DoesNotExist:
-                return Response({'detail': 'Carpeta padre no encontrada.'}, status=404)
-        
+
         with transaction.atomic():
             for ruta in rutas:
                 partes = ruta.split('/')
