@@ -2,9 +2,15 @@ import { defineStore } from 'pinia'
 import { apiItems } from '@/api/items'
 import { getErrorMessage, mensajeDeAccion, motivoParaUsuario } from '@/utils/errors'
 import { formatBytes } from '@/utils/bytes'
+import { fromEvent } from 'file-selector'
 
 const NOTIF_DURACION_EXITO = 3
 const NOTIF_DURACION_ERROR = 5
+
+// Ruta dentro de lo elegido o soltado, sin "/" ni "./" delante: "musica/rock/cancion.mp3"
+function rutaRelativa(file) {
+  return (file.relativePath || file.webkitRelativePath || file.name).replace(/^\.?\//, '')
+}
 
 export const useGestorItems = defineStore('items', {
   // Datos reactivos del store. Equivale a data() en un componente Vue.
@@ -323,9 +329,8 @@ export const useGestorItems = defineStore('items', {
       for (const file of files) {
         if (IGNORADOS.has(file.name)) continue
 
-        // webkitRelativePath contiene la ruta completa. 
-        // Ejemplo "musica/rock/cancion.mp3"
-        const partes = file.webkitRelativePath.split('/')
+        const ruta = rutaRelativa(file)
+        const partes = ruta.split('/')
 
         // Añade todos los segmentos intermedios como carpetas a crear
         // i empieza en 1 para saltarse la carpeta raíz, que ya existe en el destino
@@ -333,7 +338,7 @@ export const useGestorItems = defineStore('items', {
           carpetas.add(partes.slice(0, i).join('/'))
         }
 
-        archivos.push({ file, rutaRelativa: file.webkitRelativePath })
+        archivos.push({ file, rutaRelativa: ruta })
       }
 
       // Ordena por número de '/' para que los padres se creen antes que los hijos
@@ -345,6 +350,13 @@ export const useGestorItems = defineStore('items', {
       return { carpetasOrdenadas, archivos }
     },
 
+    // Lo soltado desde el ordenador (ficheros, carpetas o mezcla) sigue el camino de "Subir carpeta"
+    async subirSoltados(evento, padreId = null) {
+      // fromEvent lee lo soltado antes del primer await: Chrome lo vacía después
+      const files = await fromEvent(evento)
+      await this.subirCarpeta(files, padreId)
+    },
+
     async subirCarpeta(files, padreId = null) {
       if (!files.length) return
 
@@ -354,6 +366,7 @@ export const useGestorItems = defineStore('items', {
 
       // Si no cabe entera, no se sube nada: mejor que dejar una carpeta a medias
       const { carpetasOrdenadas, archivos } = this._parsearEstructuraCarpeta(files)
+      if (!archivos.length) return
       const motivo = await this.motivoSinEspacio(archivos.map((a) => a.file))
       if (motivo) {
         this.agregarNotificacion({ id: NOTIF_ID, tipo: 'error', mensaje: motivo, icono: 'pi-cloud', severidad: 'peligro' })
@@ -363,17 +376,20 @@ export const useGestorItems = defineStore('items', {
       this.agregarNotificacion({
         id: NOTIF_ID,
         tipo: 'cargando',
-        mensaje: 'Preparando estructura de carpetas…',
+        mensaje: 'Preparando la subida…',
         icono: 'pi-folder',
         severidad: 'neutro',
       })
 
       try {
-        this.actualizarNotificacion(NOTIF_ID, {
-          mensaje: `Creando ${carpetasOrdenadas.length} carpeta${carpetasOrdenadas.length !== 1 ? 's' : ''}…`,
-        })
-
-        const { mapa } = await apiItems.crearArbolCarpetas(carpetasOrdenadas, padreId)
+        // Con solo ficheros sueltos no hay carpetas que crear (el backend no acepta la lista vacía)
+        let mapa = {}
+        if (carpetasOrdenadas.length) {
+          this.actualizarNotificacion(NOTIF_ID, {
+            mensaje: `Creando ${carpetasOrdenadas.length} carpeta${carpetasOrdenadas.length !== 1 ? 's' : ''}…`,
+          })
+          ;({ mapa } = await apiItems.crearArbolCarpetas(carpetasOrdenadas, padreId))
+        }
 
         let subidos = 0
         let fallidos = 0
@@ -414,7 +430,7 @@ export const useGestorItems = defineStore('items', {
             NOTIF_ID,
             {
               tipo: 'exito',
-              mensaje: `Carpeta subida correctamente (${subidos} archivo${subidos !== 1 ? 's' : ''})`,
+              mensaje: `${carpetasOrdenadas.length ? 'Carpeta subida correctamente' : 'Subida completada'} (${subidos} archivo${subidos !== 1 ? 's' : ''})`,
               icono: 'pi-check',
               severidad: 'neutro',
             },

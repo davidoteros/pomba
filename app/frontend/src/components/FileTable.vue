@@ -184,6 +184,65 @@ function carpetaActual() {
   return route.params.folderId ? Number(route.params.folderId) : null
 }
 
+// === Soltar ficheros del ordenador (subir) ======================
+const arrastrando = ref(false)
+const destinoSoltar = ref(null)
+// Rectángulo visible de la lista: el marco va encima para que la cabecera fija no lo tape
+const marcoSoltar = ref(null)
+let apagarArrastre = null
+
+// Solo ficheros que vienen de fuera del navegador, no texto ni enlaces
+function traeFicheros(event) {
+  return event.dataTransfer?.types.includes('Files')
+}
+
+// La carpeta de la fila bajo el ratón; null si es un hueco o un archivo
+function carpetaBajo(event) {
+  const fila = event.target.closest?.('[data-carpeta-id]')
+  return fila ? gestor.items.find((i) => i.id === Number(fila.dataset.carpetaId)) ?? null : null
+}
+
+const nombreDestino = computed(() => {
+  if (destinoSoltar.value) return destinoSoltar.value.nombre
+  if (!route.params.folderId) return 'Mi unidad'
+  return gestor.breadcrumb.at(-1)?.label ?? 'esta carpeta'
+})
+
+function handleDragOver(event) {
+  if (!enMiUnidad.value || !traeFicheros(event)) return
+  event.preventDefault()
+  event.dataTransfer.dropEffect = 'copy'
+  if (!arrastrando.value) {
+    const { top, left, width, height } = event.currentTarget.parentElement.getBoundingClientRect()
+    marcoSoltar.value = { top: `${top}px`, left: `${left}px`, width: `${width}px`, height: `${height}px` }
+  }
+  arrastrando.value = true
+  destinoSoltar.value = carpetaBajo(event)
+  // Firefox a veces no avisa de que el ratón ha salido: se apaga solo si deja de llegar dragover
+  clearTimeout(apagarArrastre)
+  apagarArrastre = setTimeout(terminarArrastre, 3000)
+}
+
+// Pasar de una fila a otra también lanza dragleave: solo cuenta si sale de la zona
+function handleDragLeave(event) {
+  if (event.currentTarget.contains(event.relatedTarget)) return
+  terminarArrastre()
+}
+
+function terminarArrastre() {
+  clearTimeout(apagarArrastre)
+  arrastrando.value = false
+  destinoSoltar.value = null
+}
+
+function handleDrop(event) {
+  if (!enMiUnidad.value || !traeFicheros(event)) return
+  event.preventDefault()
+  const padre = carpetaBajo(event)?.id ?? carpetaActual()
+  terminarArrastre()
+  gestor.subirSoltados(event, padre)
+}
+
 async function accionContextMenu(accion) {
   contextMenu.value.visible = false
   const ids = gestor.seleccion.ids
@@ -237,6 +296,7 @@ document.addEventListener('keydown', handleKeydown)
 onUnmounted(() => {
   document.removeEventListener('click', handleDocumentClick)
   document.removeEventListener('keydown', handleKeydown)
+  clearTimeout(apagarArrastre)
 })
 
 function estaSeleccionado(item) {
@@ -261,6 +321,9 @@ const emptyState = computed(() => {
     class="w-full min-h-[max(24rem,100%)] select-none relative"
     @click="handleBackgroundClick"
     @contextmenu="handleContextMenuVacio"
+    @dragover="handleDragOver"
+    @dragleave="handleDragLeave"
+    @drop="handleDrop"
   >
 
     <!-- Loading  -->
@@ -322,8 +385,10 @@ const emptyState = computed(() => {
           @click.stop="handleClick($event, item, index)"
           @dblclick.stop="handleDoubleClick(item)"
           @contextmenu.stop="handleContextMenu($event, item, index)"
+          :data-carpeta-id="item.tipo === 'carpeta' ? item.id : undefined"
           :class="[
             'group cursor-pointer transition-colors duration-100 border-b border-surface-200 dark:border-surface-800',
+            destinoSoltar?.id === item.id && 'bg-primary/20',
             estaSeleccionado(item)
               ? 'bg-primary/20 dark:bg-primary/25'
               : 'hover:bg-surface-100 dark:hover:bg-surface-800',
@@ -470,6 +535,23 @@ const emptyState = computed(() => {
     </table>
 
   </div>
+
+  <!-- Aviso al arrastrar ficheros del ordenador -->
+  <Teleport to="body">
+    <div
+      v-if="arrastrando && marcoSoltar"
+      class="fixed z-150 pointer-events-none rounded-b-2xl border-2 border-dashed border-primary bg-primary/5"
+      :style="marcoSoltar"
+    />
+    <div
+      v-if="arrastrando"
+      class="fixed bottom-10 left-1/2 -translate-x-1/2 z-200 pointer-events-none
+             flex items-center gap-2 px-4 py-2.5 rounded-full shadow-lg
+             bg-primary text-primary-contrast text-sm font-medium"
+    >
+      <i class="pi pi-cloud-upload" /> <span>Suelta para subir a <b>{{ nombreDestino }}</b></span>
+    </div>
+  </Teleport>
 
   <!-- Context menu (click derecho) -->
   <Teleport to="body">
