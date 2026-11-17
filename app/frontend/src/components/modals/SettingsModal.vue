@@ -104,6 +104,7 @@
         <Button
           label="Guardar cambios"
           icon="pi pi-check"
+          :disabled="!hayCambiosDatos"
           :loading="cargandoDatos"
           @click="guardarDatos"
         />
@@ -169,6 +170,7 @@
         <Button
           label="Cambiar contraseña"
           icon="pi pi-lock"
+          :disabled="!contrasenaRellena"
           :loading="cargandoContrasena"
           @click="guardarContrasena"
         />
@@ -224,7 +226,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { apiUsers } from '@/api/users'
 import { getErrorMessage } from '@/utils/errors'
@@ -298,6 +300,11 @@ const formularioDatos = ref({
   apellidos: userStore.perfil.apellidos || '',
 })
 const cargandoDatos = ref(false)
+// Solo hay algo que guardar si difiere de lo guardado (el servidor quita los espacios de los extremos)
+const hayCambiosDatos = computed(() =>
+  formularioDatos.value.nombre.trim() !== (userStore.perfil.nombre || '') ||
+  formularioDatos.value.apellidos.trim() !== (userStore.perfil.apellidos || ''),
+)
 const exitoDatos    = ref(false)
 const errorDatos    = ref('')
 
@@ -343,6 +350,7 @@ const guardarEmail = async () => {
 
 // === CONTRASEÑA =================================
 const formularioContrasena = ref({ actual: '', nueva: '', confirmar: '' })
+const contrasenaRellena = computed(() => Object.values(formularioContrasena.value).every(Boolean))
 const cargandoContrasena   = ref(false)
 const exitoContrasena      = ref(false)
 const errorContrasena      = ref('')
