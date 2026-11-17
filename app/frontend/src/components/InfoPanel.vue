@@ -152,6 +152,7 @@ async function eliminarVersion(version) {
   try {
     await apiItems.eliminarVersion(item.value.id, version.numero)
     await cargarVersiones()
+    await gestor.cargarEspacio()
   } catch (e) {
     gestor.agregarNotificacion({
       id: 'eliminar-version', tipo: 'error',

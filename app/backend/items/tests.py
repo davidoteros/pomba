@@ -668,3 +668,51 @@ class CarpetaDelUsuarioTests(TestCase):
                 {'nombre': 'a.txt', 'key': 'files/a.txt', 'padre': self.buena.id}, format='json',
             )
         validar.assert_called_once()
+
+
+@mock.patch.object(registry, 'delete_related')
+@mock.patch.object(registry, 'update_related')
+@mock.patch.object(registry, 'update')
+@mock.patch.object(registry, 'delete')
+@mock.patch('items.services.ItemService.get_s3_client')
+@override_settings(CUOTA_USUARIO_BYTES=1000, LIMITE_FICHERO_BYTES=500)
+class EspacioTests(TestCase):
+    """La barra de espacio lee la misma cifra con la que el servidor decide la cuota."""
+
+    def setUp(self):
+        self.usuario = Usuario.objects.create_user(email='espacio@prueba.com', password='Prueba1234!')
+        self.cliente = APIClient()
+        self.cliente.force_authenticate(self.usuario)
+
+    def archivo(self, nombre, tamano, **extra):
+        return Item.objects.create(
+            usuario=self.usuario, nombre=nombre, tipo=Item.Tipo.ARCHIVO, file=f'files/{nombre}',
+            tamano_bytes=tamano, **extra,
+        )
+
+    def test_cuenta_ficheros_papelera_versiones_y_subidas_en_curso(self, *_):
+        self.archivo('a.txt', 100)
+        self.archivo('b.txt', 50, eliminado=True)
+        audio = self.archivo('c.mp3', 30)
+        audio.versiones.create(numero=1, file='files/v/1.mp3', tamano_bytes=25, es_actual=False)
+        SubidaPendiente.objects.create(key='files/d.txt', usuario=self.usuario, tamano_declarado=10)
+
+        respuesta = self.cliente.get('/api/items/espacio/')
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(respuesta.json(), {'ocupado': 215, 'libre': 785, 'cuota': 1000, 'limite_fichero': 500})
+
+    def test_por_encima_de_la_cuota_el_libre_es_cero(self, *_):
+        self.archivo('grande.bin', 1200)
+        self.assertEqual(self.cliente.get('/api/items/espacio/').json()['libre'], 0)
+
+    def test_la_barra_y_el_413_usan_la_misma_cifra(self, *_):
+        self.archivo('a.txt', 900)
+        SubidaPendiente.objects.create(key='files/b.txt', usuario=self.usuario, tamano_declarado=50)
+        libre = self.cliente.get('/api/items/espacio/').json()['libre']
+        ItemService.comprobar_cuota(self.usuario, libre)
+        with self.assertRaises(CuotaExcedida):
+            ItemService.comprobar_cuota(self.usuario, libre + 1)
+
+    def test_sin_sesion_no_hay_espacio(self, *_):
+        self.assertEqual(APIClient().get('/api/items/espacio/').status_code, 403)

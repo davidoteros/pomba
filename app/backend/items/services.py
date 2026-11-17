@@ -571,6 +571,21 @@ class ItemService:
         ).aggregate(total=Sum('tamano_declarado'))['total'] or 0
 
     @staticmethod
+    def espacio_ocupado(usuario):
+        return ItemService.espacio_usado(usuario) + ItemService.espacio_pendiente(usuario)
+
+    @staticmethod
+    def resumen_espacio(usuario):
+        """Lo que enseña la barra de espacio, calculado aquí para que Vue no repita la cuenta."""
+        ocupado = ItemService.espacio_ocupado(usuario)
+        return {
+            'ocupado': ocupado,
+            'libre': max(settings.CUOTA_USUARIO_BYTES - ocupado, 0),
+            'cuota': settings.CUOTA_USUARIO_BYTES,
+            'limite_fichero': settings.LIMITE_FICHERO_BYTES,
+        }
+
+    @staticmethod
     def _bloquear_usuario(usuario):
         """Bloquea la fila del usuario hasta el final de la transacción: sus cuentas de cuota van de una en una."""
         get_user_model().objects.select_for_update().get(pk=usuario.pk)
@@ -587,7 +602,7 @@ class ItemService:
                 motivo='fichero',
             )
 
-        ocupado = ItemService.espacio_usado(usuario) + ItemService.espacio_pendiente(usuario)
+        ocupado = ItemService.espacio_ocupado(usuario)
         if ocupado + tamano_bytes > settings.CUOTA_USUARIO_BYTES:
             libre = max(settings.CUOTA_USUARIO_BYTES - ocupado, 0)
             raise CuotaExcedida(

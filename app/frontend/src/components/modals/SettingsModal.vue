@@ -217,6 +217,9 @@
       </Message>
     </div>
 
+    <!-- Solo en móvil, que no tiene barra lateral; al pie para verse con cualquier pestaña -->
+    <EspacioUsado class="sm:hidden mt-6 pt-4 border-t border-surface-200 dark:border-surface-700" />
+
   </Dialog>
 </template>
 
@@ -226,6 +229,7 @@ import { useRouter } from 'vue-router'
 import { apiUsers } from '@/api/users'
 import { getErrorMessage } from '@/utils/errors'
 import { useUserStore } from '@/stores/user'
+import EspacioUsado from '@/components/EspacioUsado.vue'
 
 import Dialog from 'primevue/dialog'
 import Button from 'primevue/button'

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { apiItems } from '@/api/items'
 import { getErrorMessage, mensajeDeAccion, motivoParaUsuario } from '@/utils/errors'
+import { formatBytes } from '@/utils/bytes'
 
 const NOTIF_DURACION_EXITO = 3
 const NOTIF_DURACION_ERROR = 5
@@ -27,6 +28,9 @@ export const useGestorItems = defineStore('items', {
     },
 
     notificaciones: [],
+
+    // { ocupado, libre, cuota, limite_fichero } en bytes; null hasta que responde el servidor
+    espacio: null,
 
     panelInfo: {
       visible: false,
@@ -99,6 +103,41 @@ export const useGestorItems = defineStore('items', {
           icono: 'pi-eye-slash',
         })
       }
+    },
+
+    // === ESPACIO =============================================
+
+    async cargarEspacio() {
+      try {
+        const antes = this.espacio
+        this.espacio = await apiItems.espacio()
+        // Como Nextcloud: avisa al entrar ya lleno o al pasar de tener sitio a no tenerlo
+        if (this.espacio.libre === 0 && this.espacio.cuota > 0 && (!antes || antes.libre > 0)) {
+          this.agregarNotificacion({
+            id: 'espacio-lleno',
+            tipo: 'error',
+            mensaje: 'Tu almacenamiento está lleno: no puedes subir más archivos.',
+            icono: 'pi-cloud',
+          })
+        }
+      } catch (error) {
+        console.error('No se pudo cargar el espacio:', error)
+      }
+    },
+
+    // Antes de subir, con la cifra recién pedida; si no se puede saber, decide el servidor
+    async motivoSinEspacio(ficheros) {
+      await this.cargarEspacio()
+      if (!this.espacio) return null
+      const { libre, limite_fichero: limite } = this.espacio
+      const grande = ficheros.find((f) => f.size > limite)
+      if (grande) return `"${grande.name}" supera el máximo de ${formatBytes(limite)} por fichero.`
+      const total = ficheros.reduce((suma, f) => suma + f.size, 0)
+      if (total > libre) {
+        const verbo = ficheros.length === 1 ? 'ocupa' : 'ocupan'
+        return `No hay espacio: ${verbo} ${formatBytes(total)} y quedan ${formatBytes(libre)} libres.`
+      }
+      return null
     },
 
     // === NOTIFICACIONES ======================================
@@ -229,6 +268,11 @@ export const useGestorItems = defineStore('items', {
     },
 
     async subirArchivo(file, padreId = null) {
+      const motivo = await this.motivoSinEspacio([file])
+      if (motivo) {
+        this.agregarNotificacion({ id: 'subir-error', tipo: 'error', mensaje: motivo, icono: 'pi-cloud' })
+        return
+      }
       this.agregarNotificacion({
         id: 'subir',
         tipo: 'cargando',
@@ -248,6 +292,7 @@ export const useGestorItems = defineStore('items', {
         })
       } finally {
         this.eliminarNotificacion('subir')
+        await this.cargarEspacio()
       }
     },
 
@@ -289,6 +334,14 @@ export const useGestorItems = defineStore('items', {
       //Para subir de 3 en 3
       const LOTE = 3
 
+      // Si no cabe entera, no se sube nada: mejor que dejar una carpeta a medias
+      const { carpetasOrdenadas, archivos } = this._parsearEstructuraCarpeta(files)
+      const motivo = await this.motivoSinEspacio(archivos.map((a) => a.file))
+      if (motivo) {
+        this.agregarNotificacion({ id: NOTIF_ID, tipo: 'error', mensaje: motivo, icono: 'pi-cloud', severidad: 'peligro' })
+        return
+      }
+
       this.agregarNotificacion({
         id: NOTIF_ID,
         tipo: 'cargando',
@@ -298,8 +351,6 @@ export const useGestorItems = defineStore('items', {
       })
 
       try {
-        const { carpetasOrdenadas, archivos } = this._parsearEstructuraCarpeta(files)
-
         this.actualizarNotificacion(NOTIF_ID, {
           mensaje: `Creando ${carpetasOrdenadas.length} carpeta${carpetasOrdenadas.length !== 1 ? 's' : ''}…`,
         })
@@ -378,6 +429,7 @@ export const useGestorItems = defineStore('items', {
         )
       } finally {
         await this.cargarItems(this.currentParams)
+        await this.cargarEspacio()
       }
     },
 
@@ -497,6 +549,8 @@ export const useGestorItems = defineStore('items', {
         )
       } catch (error) {
         this.actualizarNotificacion('eliminar', { tipo: 'error', mensaje: mensajeDeAccion(error, 'Error al eliminar') }, 5)
+      } finally {
+        await this.cargarEspacio()
       }
     },
 
@@ -565,6 +619,8 @@ export const useGestorItems = defineStore('items', {
           { tipo: 'error', mensaje: mensajeDeAccion(error, 'Error al vaciar la papelera') },
           5,
         )
+      } finally {
+        await this.cargarEspacio()
       }
     },
 
@@ -636,6 +692,11 @@ export const useGestorItems = defineStore('items', {
     //Esto lo usamos para poder subir nuevas versiones de canciones
     async subirNuevaVersion(file, itemId) {
       const NOTIF_ID = `version-${itemId}`
+      const motivo = await this.motivoSinEspacio([file])
+      if (motivo) {
+        this.agregarNotificacion({ id: NOTIF_ID, tipo: 'error', mensaje: motivo, icono: 'pi-cloud' })
+        return false
+      }
       this.agregarNotificacion({
         id: NOTIF_ID,
         tipo: 'cargando',
@@ -663,6 +724,8 @@ export const useGestorItems = defineStore('items', {
           icono: 'pi-times',
         }, 5)
         return false
+      } finally {
+        await this.cargarEspacio()
       }
     },
 

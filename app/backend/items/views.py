@@ -520,6 +520,22 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     # =========================================================
+    # ESPACIO
+    # =========================================================
+
+    @extend_schema(
+        responses=inline_serializer('EspacioResponse', fields={
+            'ocupado': drf_serializers.IntegerField(),
+            'libre': drf_serializers.IntegerField(),
+            'cuota': drf_serializers.IntegerField(),
+            'limite_fichero': drf_serializers.IntegerField(),
+        }),
+    )
+    @action(detail=False, methods=['get'])
+    def espacio(self, request):
+        return Response(ItemService.resumen_espacio(request.user))
+
+    # =========================================================
     # BÚSQUEDA
     # =========================================================
 

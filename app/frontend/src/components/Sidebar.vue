@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useGestorItems } from '@/stores/items'
 import { useUserStore } from '@/stores/user'
 import { useConfirmacion } from '@/composables/useConfirmacion'
+import EspacioUsado from '@/components/EspacioUsado.vue'
 
 import ContextMenu from 'primevue/contextmenu'
 import Menu from 'primevue/menu'
@@ -172,6 +173,8 @@ function togglePanelUsuario() {
         <span class="hidden lg:inline font-medium">{{ item.label }}</span>
       </button>
     </nav>
+
+    <EspacioUsado variante="lateral" class="mt-auto" />
 
   </aside>
 

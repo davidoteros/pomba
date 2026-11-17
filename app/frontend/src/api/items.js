@@ -13,6 +13,12 @@ export const apiItems = {
     return data
   },
 
+  // Ocupado, libre, cuota y máximo por fichero, en bytes, calculados por el servidor
+  async espacio() {
+    const { data } = await api.get('items/espacio/')
+    return data
+  },
+
   async crearCarpeta(datos) {
     const { data } = await api.post('items/', datos)
     return data
