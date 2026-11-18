@@ -533,6 +533,31 @@ class EntradaAccionesTests(TestCase):
         a.refresh_from_db()
         self.assertIsNone(a.padre_id)
 
+    def test_mover_con_nombre_repetido_lo_renombra(self, *_):
+        destino = self.item('Destino')
+        self.item('f.txt', Item.Tipo.ARCHIVO, file='files/1.txt', padre=destino)
+        self.item('Fotos', padre=destino)
+        archivo = self.item('f.txt', Item.Tipo.ARCHIVO, file='files/2.txt')
+        carpeta = self.item('Fotos')
+        respuesta = self.cliente.post(
+            '/api/items/mover/', {'ids': [archivo.id, carpeta.id], 'destino': destino.id}, format='json',
+        )
+        self.assertEqual(respuesta.status_code, 200)
+        archivo.refresh_from_db()
+        carpeta.refresh_from_db()
+        self.assertEqual((archivo.nombre, archivo.padre_id), ('f (1).txt', destino.id))
+        self.assertEqual((carpeta.nombre, carpeta.padre_id), ('Fotos (1)', destino.id))
+
+    def test_mover_a_su_misma_carpeta_no_cambia_el_nombre(self, *_):
+        carpeta = self.item('Carpeta')
+        archivo = self.item('f.txt', Item.Tipo.ARCHIVO, file='files/1.txt', padre=carpeta)
+        respuesta = self.cliente.post(
+            '/api/items/mover/', {'ids': [archivo.id], 'destino': carpeta.id}, format='json',
+        )
+        self.assertEqual(respuesta.status_code, 200)
+        archivo.refresh_from_db()
+        self.assertEqual(archivo.nombre, 'f.txt')
+
     def test_renombrar_con_nombre_mal_formado_da_400(self, *_):
         item = self.item('A')
         for cuerpo in [{}, {'nombre': ''}, {'nombre': '   '}, {'nombre': ['B']}, {'nombre': {'x': 1}}]:

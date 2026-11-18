@@ -31,6 +31,25 @@ function navegarDesdePopover(item) {
   popoverBreadcrumb.value?.hide()
 }
 
+// Al pasar arrastrando por ··· se abre la ruta para soltar en ella
+let rutaAbiertaAlArrastrar = false
+
+function abrirRutaAlArrastrar(event) {
+  if (!gestor.arrastre.ids.length || rutaAbiertaAlArrastrar) return
+  rutaAbiertaAlArrastrar = true
+  popoverBreadcrumb.value?.show(event)
+}
+
+function cerrarRutaAlArrastrar() {
+  if (!rutaAbiertaAlArrastrar) return
+  rutaAbiertaAlArrastrar = false
+  popoverBreadcrumb.value?.hide()
+}
+
+watch(() => gestor.arrastre.ids.length, (cuantos) => {
+  if (!cuantos) cerrarRutaAlArrastrar()
+})
+
 const CONFIGURACION_VISTAS = {
   drive: {
     titulo: 'Mi unidad',
@@ -55,6 +74,9 @@ const CONFIGURACION_VISTAS = {
 }
 
 const enPapelera = computed(() => (route.params.view || 'drive') === 'trash')
+
+// Miga sobre la que se va a soltar lo que se arrastra
+const CLASE_DESTINO = 'bg-primary/30! ring-2 ring-inset ring-primary text-surface-900! dark:text-surface-0!'
 
 const breadcrumbInicio = computed(() => {
   const vistaActual = route.params.view || 'drive'
@@ -155,6 +177,8 @@ watch(
       <template v-if="rutaBreadcrumb.length <= 2">
         <span
           v-if="rutaBreadcrumb.length === 0"
+          data-carpeta-id="raiz"
+          :data-carpeta-nombre="breadcrumbInicio.label"
           class="flex items-center gap-2 px-2 py-1 text-lg font-bold
                  text-surface-900 dark:text-surface-0"
         >
@@ -165,9 +189,14 @@ watch(
         <template v-else>
           <button
             @click="breadcrumbInicio.command()"
-            class="flex items-center gap-1.5 px-2 py-1 rounded-md text-base font-medium shrink-0
-                   text-surface-500 dark:text-surface-400
-                   hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors cursor-pointer"
+            data-carpeta-id="raiz"
+            :data-carpeta-nombre="breadcrumbInicio.label"
+            :class="[
+              'flex items-center gap-1.5 px-2 py-1 rounded-md text-base font-medium shrink-0',
+              'text-surface-500 dark:text-surface-400',
+              'hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors cursor-pointer',
+              gestor.esDestinoArrastre(null) && CLASE_DESTINO,
+            ]"
           >
             <i :class="[breadcrumbInicio.icon, 'text-xs']" />
             <span>{{ breadcrumbInicio.label }}</span>
@@ -177,12 +206,19 @@ watch(
             <button
               v-if="idx < rutaBreadcrumb.length - 1"
               @click="item.command()"
-              class="max-w-36 truncate px-2 py-1 rounded-md text-base font-medium shrink-0
-                     text-surface-500 dark:text-surface-400
-                     hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors cursor-pointer"
+              :data-carpeta-id="item.id"
+              :data-carpeta-nombre="item.label"
+              :class="[
+                'max-w-36 truncate px-2 py-1 rounded-md text-base font-medium shrink-0',
+                'text-surface-500 dark:text-surface-400',
+                'hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors cursor-pointer',
+                gestor.esDestinoArrastre(item.id) && CLASE_DESTINO,
+              ]"
             >{{ item.label }}</button>
             <span
               v-else
+              :data-carpeta-id="item.id"
+              :data-carpeta-nombre="item.label"
               class="max-w-56 truncate px-2 py-1 text-lg font-bold text-surface-900 dark:text-surface-0 shrink-0"
             >{{ item.label }}</span>
           </template>
@@ -193,6 +229,7 @@ watch(
       <template v-else>
         <button
           @click="togglePopoverBreadcrumb($event)"
+          @dragenter="abrirRutaAlArrastrar"
           title="Mostrar ruta completa"
           class="px-2 py-0.5 rounded text-base font-bold tracking-widest shrink-0
                 text-surface-400 dark:text-surface-500
@@ -203,14 +240,23 @@ watch(
         <!-- Padre del actual -->
         <button
           @click="rutaBreadcrumb.at(-2).command()"
-          class="max-w-36 truncate px-2 py-1 rounded-md text-base font-medium shrink-0
-                text-surface-500 dark:text-surface-400
-                hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors cursor-pointer"
+          :data-carpeta-id="rutaBreadcrumb.at(-2).id"
+          :data-carpeta-nombre="rutaBreadcrumb.at(-2).label"
+          :class="[
+            'max-w-36 truncate px-2 py-1 rounded-md text-base font-medium shrink-0',
+            'text-surface-500 dark:text-surface-400',
+            'hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors cursor-pointer',
+            gestor.esDestinoArrastre(rutaBreadcrumb.at(-2).id) && CLASE_DESTINO,
+          ]"
         >{{ rutaBreadcrumb.at(-2).label }}</button>
 
         <i class="pi pi-angle-right text-sm text-surface-300 dark:text-surface-600 shrink-0 mx-0.5" />
         <!-- Actual — título de página, no clicable -->
-        <span class="max-w-56 truncate px-2 py-1 text-lg font-bold text-surface-900 dark:text-surface-0 shrink-0">
+        <span
+          :data-carpeta-id="rutaBreadcrumb.at(-1).id"
+          :data-carpeta-nombre="rutaBreadcrumb.at(-1).label"
+          class="max-w-56 truncate px-2 py-1 text-lg font-bold text-surface-900 dark:text-surface-0 shrink-0"
+        >
           {{ rutaBreadcrumb.at(-1).label }}
         </span>
       </template>
@@ -224,9 +270,14 @@ watch(
                   text-surface-400 dark:text-surface-500">Ruta completa</p>
         <button
           @click="navegarDesdePopover(breadcrumbInicio)"
-          class="flex items-center gap-2 px-3 py-2 rounded-md text-sm text-left w-full
-                text-surface-700 dark:text-surface-200
-                hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors cursor-pointer"
+          data-carpeta-id="raiz"
+          :data-carpeta-nombre="breadcrumbInicio.label"
+          :class="[
+            'flex items-center gap-2 px-3 py-2 rounded-md text-sm text-left w-full',
+            'text-surface-700 dark:text-surface-200',
+            'hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors cursor-pointer',
+            gestor.esDestinoArrastre(null) && CLASE_DESTINO,
+          ]"
         >
           <i :class="[breadcrumbInicio.icon, 'text-xs text-surface-400 dark:text-surface-500 shrink-0']" />
           <span class="truncate">{{ breadcrumbInicio.label }}</span>
@@ -235,9 +286,14 @@ watch(
           v-for="item in rutaBreadcrumb.slice(0, -2)"
           :key="item.id"
           @click="navegarDesdePopover(item)"
-          class="flex items-center gap-2 px-3 py-2 rounded-md text-sm text-left w-full
-                text-surface-700 dark:text-surface-200
-                hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors cursor-pointer"
+          :data-carpeta-id="item.id"
+          :data-carpeta-nombre="item.label"
+          :class="[
+            'flex items-center gap-2 px-3 py-2 rounded-md text-sm text-left w-full',
+            'text-surface-700 dark:text-surface-200',
+            'hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors cursor-pointer',
+            gestor.esDestinoArrastre(item.id) && CLASE_DESTINO,
+          ]"
         >
           <i class="pi pi-folder text-xs text-surface-400 dark:text-surface-500 shrink-0" />
           <span class="truncate">{{ item.label }}</span>
@@ -296,7 +352,7 @@ watch(
     </div>
 
     <!-- ZONA SCROLLABLE: tabla de archivos -->
-    <div class="flex-1 min-h-0 overflow-auto pb-24 lg:pb-0
+    <div @dragenter="cerrarRutaAlArrastrar" class="flex-1 min-h-0 overflow-auto pb-24 lg:pb-0
                 [&::-webkit-scrollbar]:w-1.5
                 [&::-webkit-scrollbar-track]:bg-transparent
                 [&::-webkit-scrollbar-thumb]:rounded-full

@@ -140,9 +140,12 @@ function togglePanelUsuario() {
         @click="setActive(item.key)"
         @contextmenu.prevent="item.key === 'trash' && toggleMenuPapelera($event)"
         :title="item.label"
+        :data-carpeta-id="item.key === 'drive' ? 'raiz' : undefined"
+        :data-carpeta-nombre="item.key === 'drive' ? item.label : undefined"
         :class="[
           'flex items-center py-2 rounded-lg transition-all duration-200 cursor-pointer border-none outline-none text-sm w-full',
           'sm:justify-center sm:px-2 sm:gap-0 lg:justify-start lg:px-3 lg:gap-5 lg:text-left',
+          item.key === 'drive' && gestor.esDestinoArrastre(null) && 'outline-solid! outline-2 outline-offset-2 outline-primary brightness-110',
           active === item.key
             ? 'bg-primary text-primary-contrast shadow-sm'
             : 'text-surface-700 dark:text-surface-200 hover:bg-surface-200 dark:hover:bg-surface-800',

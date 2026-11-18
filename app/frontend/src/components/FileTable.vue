@@ -243,6 +243,74 @@ function handleDrop(event) {
   gestor.subirSoltados(event, padre)
 }
 
+// === Mover arrastrando dentro de Pomba ==========================
+const CLASE_DESTINO = 'bg-primary/30! ring-2 ring-inset ring-primary'
+const vistaArrastre = ref(null)
+const puedeArrastrar = computed(() => !esTactil && enMiUnidad.value)
+
+const queSeMueve = computed(() => {
+  const { ids } = gestor.arrastre
+  if (ids.length !== 1) return `${ids.length} elementos`
+  return gestor.items.find((i) => i.id === ids[0])?.nombre ?? '1 elemento'
+})
+
+
+function prepararVistaArrastre(item) {
+  const { ids } = gestor.arrastre
+  const [icono, nombre, cuenta] = vistaArrastre.value.children
+  icono.className = `pi ${ids.length > 1 ? 'pi-clone' : item.tipo === 'carpeta' ? 'pi-folder' : 'pi-file'}`
+  nombre.textContent = ids.length > 1 ? `${ids.length} elementos` : item.nombre
+  cuenta.textContent = ids.length > 1 ? ids.length : ''
+  return vistaArrastre.value
+}
+
+function handleInicioMover(event, item, index) {
+  if (!puedeArrastrar.value) {
+    event.preventDefault()
+    return
+  }
+  menuAbierto.value = null
+  contextMenu.value.visible = false
+  gestor.empezarArrastre(item, index)
+  event.dataTransfer.effectAllowed = 'move'
+  // Tipo propio: no lleva 'Files', así que no se confunde con subir desde el ordenador
+  event.dataTransfer.setData('application/x-pomba-items', gestor.arrastre.ids.join(','))
+  event.dataTransfer.setDragImage(prepararVistaArrastre(item), -12, -12)
+}
+
+// Filas, migas y "Mi unidad" se marcan con data-carpeta-id ("raiz" es Mi unidad)
+function analizarDestino(target) {
+  const elemento = target.nodeType === Node.ELEMENT_NODE ? target : target.parentElement
+  const carpeta = elemento?.closest('[data-carpeta-id]')
+  if (!carpeta) return { destino: null, motivo: null }
+  const { carpetaId, carpetaNombre: nombre } = carpeta.dataset
+  const id = carpetaId === 'raiz' ? null : Number(carpetaId)
+  if (gestor.arrastre.ids.includes(id)) {
+    return { destino: null, motivo: 'Una carpeta no puede ir dentro de sí misma' }
+  }
+  if (id === gestor.carpetaAbiertaId) return { destino: null, motivo: 'Ya está en esta carpeta' }
+  return { destino: { id, nombre }, motivo: null }
+}
+
+function handleMoverSobre(event) {
+  if (!gestor.arrastre.ids.length) return
+  const { destino, motivo } = analizarDestino(event.target)
+  gestor.marcarDestinoArrastre(destino, motivo)
+  if (!destino) return
+  event.preventDefault()
+  event.dataTransfer.dropEffect = 'move'
+}
+
+function handleSoltarMover(event) {
+  const { ids } = gestor.arrastre
+  if (!ids.length) return
+  const { destino } = analizarDestino(event.target)
+  gestor.limpiarArrastre()
+  if (!destino) return
+  event.preventDefault()
+  gestor.moverItems(ids, destino.id)
+}
+
 async function accionContextMenu(accion) {
   contextMenu.value.visible = false
   const ids = gestor.seleccion.ids
@@ -284,18 +352,40 @@ function handleDocumentClick() {
   if (contextMenu.value.visible) contextMenu.value.visible = false
 }
 
+// La tecla "delete" del Mac envía Backspace; en Windows y Linux Backspace no borra
+const esMac = /Mac/i.test(navigator.platform)
+
+function handleTeclaEliminar(event) {
+  const conModificador = event.ctrlKey || event.metaKey || event.altKey || event.shiftKey
+  const escribiendo = event.target.closest?.('input, textarea, select, [contenteditable="true"]')
+  const ventanaAbierta = document.querySelector('.p-dialog')
+  if (esTactil || event.repeat || conModificador || escribiendo || ventanaAbierta) return
+  if (!gestor.seleccion.ids.length || gestor.arrastre.ids.length) return
+  event.preventDefault()
+  menuAbierto.value = null
+  accionContextMenu(enPapelera.value ? 'deleteForever' : 'delete')
+}
+
 function handleKeydown(event) {
   if (event.key === 'Escape') {
     menuAbierto.value = null
     contextMenu.value.visible = false
+  } else if (event.key === 'Delete' || (esMac && event.key === 'Backspace')) {
+    handleTeclaEliminar(event)
   }
 }
 
 document.addEventListener('click', handleDocumentClick)
 document.addEventListener('keydown', handleKeydown)
+document.addEventListener('dragover', handleMoverSobre)
+document.addEventListener('drop', handleSoltarMover)
+document.addEventListener('dragend', gestor.limpiarArrastre)
 onUnmounted(() => {
   document.removeEventListener('click', handleDocumentClick)
   document.removeEventListener('keydown', handleKeydown)
+  document.removeEventListener('dragover', handleMoverSobre)
+  document.removeEventListener('drop', handleSoltarMover)
+  document.removeEventListener('dragend', gestor.limpiarArrastre)
   clearTimeout(apagarArrastre)
 })
 
@@ -382,13 +472,17 @@ const emptyState = computed(() => {
           role="row"
           :aria-selected="estaSeleccionado(item)"
           :tabindex="index === 0 ? 0 : -1"
+          :draggable="puedeArrastrar"
+          @dragstart="handleInicioMover($event, item, index)"
           @click.stop="handleClick($event, item, index)"
           @dblclick.stop="handleDoubleClick(item)"
           @contextmenu.stop="handleContextMenu($event, item, index)"
           :data-carpeta-id="item.tipo === 'carpeta' ? item.id : undefined"
+          :data-carpeta-nombre="item.tipo === 'carpeta' ? item.nombre : undefined"
           :class="[
-            'group cursor-pointer transition-colors duration-100 border-b border-surface-200 dark:border-surface-800',
-            destinoSoltar?.id === item.id && 'bg-primary/20',
+            'group cursor-pointer outline-none transition-colors duration-100 border-b border-surface-200 dark:border-surface-800',
+            (destinoSoltar?.id === item.id || gestor.esDestinoArrastre(item.id)) && CLASE_DESTINO,
+            gestor.arrastre.ids.includes(item.id) && 'opacity-40',
             estaSeleccionado(item)
               ? 'bg-primary/20 dark:bg-primary/25'
               : 'hover:bg-surface-100 dark:hover:bg-surface-800',
@@ -550,6 +644,40 @@ const emptyState = computed(() => {
              bg-primary text-primary-contrast text-sm font-medium"
     >
       <i class="pi pi-cloud-upload" /> <span>Suelta para subir a <b>{{ nombreDestino }}</b></span>
+    </div>
+  </Teleport>
+
+  <!-- Mover arrastrando: imagen junto al ratón (fuera de la pantalla) y aviso de abajo -->
+  <Teleport to="body">
+    <div
+      ref="vistaArrastre"
+      aria-hidden="true"
+      class="fixed -top-[9999px] -left-[9999px] flex items-center gap-2 max-w-72 px-3 py-1.5 rounded-full
+             bg-primary text-primary-contrast text-sm font-medium whitespace-nowrap"
+    >
+      <i /><span class="truncate" /><b class="px-1.5 rounded-full bg-white/25 text-xs empty:hidden" />
+    </div>
+    <div
+      v-if="gestor.arrastre.ids.length"
+      role="status"
+      :class="[
+        'fixed bottom-10 left-1/2 -translate-x-1/2 z-200 pointer-events-none max-w-[90vw]',
+        'flex items-center gap-2 px-4 py-2.5 rounded-full shadow-lg text-sm font-medium whitespace-nowrap',
+        gestor.arrastre.destino
+          ? 'bg-primary text-primary-contrast'
+          : ['bg-surface-800 dark:bg-surface-700', gestor.arrastre.motivo ? 'text-red-200' : 'text-surface-0'],
+      ]"
+    >
+      <template v-if="gestor.arrastre.destino">
+        <i class="pi pi-arrow-right" />
+        <span class="truncate">Mover {{ queSeMueve }} a <b>{{ gestor.arrastre.destino.nombre }}</b></span>
+      </template>
+      <template v-else-if="gestor.arrastre.motivo">
+        <i class="pi pi-ban" /> <span>{{ gestor.arrastre.motivo }}</span>
+      </template>
+      <template v-else>
+        <i class="pi pi-arrows-alt" /> <span>Arrastra hasta una carpeta</span>
+      </template>
     </div>
   </Teleport>
 

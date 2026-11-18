@@ -483,6 +483,9 @@ class ItemService:
         if ItemService.check_cycle(item, nueva_carpeta_padre):
             raise DjangoValidationError("No puedes crear ciclos")
 
+        # Como al subir: si el nombre ya está en el destino, se numera
+        if item.padre != nueva_carpeta_padre:
+            item.nombre = ItemService._nombre_disponible(item.usuario, item.nombre, nueva_carpeta_padre)
         item.padre = nueva_carpeta_padre
 
         return ItemService.guardar_item(item)

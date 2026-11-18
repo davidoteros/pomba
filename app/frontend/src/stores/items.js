@@ -27,6 +27,13 @@ export const useGestorItems = defineStore('items', {
       lastIndex: null,
     },
 
+    // Mover arrastrando
+    arrastre: {
+      ids: [],
+      destino: null,
+      motivo: null,
+    },
+
     modal: {
       open: false,
       name: null,
@@ -54,6 +61,11 @@ export const useGestorItems = defineStore('items', {
     },
     descargando: (state) =>
       state.notificaciones.some((n) => n.id === 'descargar' && n.tipo === 'cargando'),
+
+    // La ruta da el id como texto; null es la raíz
+    carpetaAbiertaId: (state) => (state.currentParams.carpeta ? Number(state.currentParams.carpeta) : null),
+
+    esDestinoArrastre: (state) => (id) => state.arrastre.destino?.id === id,
   },
 
   // Funciones que modifican el state o llaman a la API. Equivalen a methods en un componente Vue.
@@ -498,8 +510,7 @@ export const useGestorItems = defineStore('items', {
     async moverItems(ids, destinoId) {
       try {
         await apiItems.mover(ids, destinoId)
-        const carpetaActual = this.currentParams.carpeta ?? null
-        if (destinoId !== carpetaActual) {
+        if (destinoId !== this.carpetaAbiertaId) {
           this.items = this.items.filter((item) => !ids.includes(item.id))
         }
         this.limpiarSeleccion()
@@ -518,6 +529,21 @@ export const useGestorItems = defineStore('items', {
           icono: 'pi-times',
         })
       }
+    },
+
+    // Si la fila no estaba seleccionada, se mueve solo ella (como en el Finder)
+    empezarArrastre(item, index) {
+      if (!this.seleccion.ids.includes(item.id)) this.seleccionar(item, index)
+      this.arrastre.ids = [...this.seleccion.ids]
+    },
+
+    marcarDestinoArrastre(destino, motivo) {
+      if (this.arrastre.destino?.id !== destino?.id) this.arrastre.destino = destino
+      this.arrastre.motivo = motivo
+    },
+
+    limpiarArrastre() {
+      this.arrastre = { ids: [], destino: null, motivo: null }
     },
 
     async marcarFavoritos(ids = []) {
