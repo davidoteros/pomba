@@ -27,6 +27,13 @@ export const useGestorItems = defineStore('items', {
       lastIndex: null,
     },
 
+    // Cortar o copiar y pegar: qué se lleva, de qué carpetas sale y si se mueve ('cortar') o se duplica ('copiar')
+    portapapeles: {
+      ids: [],
+      padres: [],
+      modo: null,
+    },
+
     // Mover arrastrando
     arrastre: {
       ids: [],
@@ -66,6 +73,8 @@ export const useGestorItems = defineStore('items', {
     carpetaAbiertaId: (state) => (state.currentParams.carpeta ? Number(state.currentParams.carpeta) : null),
 
     esDestinoArrastre: (state) => (id) => state.arrastre.destino?.id === id,
+
+    estaCortado: (state) => (id) => state.portapapeles.modo === 'cortar' && state.portapapeles.ids.includes(id),
   },
 
   // Funciones que modifican el state o llaman a la API. Equivalen a methods en un componente Vue.
@@ -507,6 +516,7 @@ export const useGestorItems = defineStore('items', {
       )
     },
 
+    // Devuelve si se movió, para que pegar sepa si vaciar el portapapeles
     async moverItems(ids, destinoId) {
       try {
         await apiItems.mover(ids, destinoId)
@@ -521,6 +531,7 @@ export const useGestorItems = defineStore('items', {
           icono: 'pi-arrow-right',
           severidad: 'neutro',
         })
+        return true
       } catch (error) {
         this.agregarNotificacion({
           id: 'mover',
@@ -528,6 +539,66 @@ export const useGestorItems = defineStore('items', {
           mensaje: mensajeDeAccion(error, 'No se pudo mover el elemento'),
           icono: 'pi-times',
         })
+        return false
+      }
+    },
+
+    // === CORTAR, COPIAR Y PEGAR =================================
+
+    guardarEnPortapapeles(modo) {
+      const items = this.itemsSeleccionados
+      if (!items.length) return
+      this.portapapeles = { ids: items.map((i) => i.id), padres: items.map((i) => i.padre ?? null), modo }
+    },
+
+    vaciarPortapapeles() {
+      this.portapapeles = { ids: [], padres: [], modo: null }
+    },
+
+    // Lo mismo que evita el arrastre: ni dentro de sí misma ni donde ya está
+    motivoNoPegar(destinoId) {
+      const { ids, padres, modo } = this.portapapeles
+      const ruta = new Set(this.breadcrumb.map((n) => n.id).filter((id) => id !== null))
+      if (destinoId !== null) ruta.add(destinoId)
+      if (ids.some((id) => ruta.has(id))) return 'Una carpeta no puede ir dentro de sí misma'
+      if (modo === 'cortar' && padres.every((p) => p === destinoId)) return 'Ya está en esta carpeta'
+      return null
+    },
+
+    async pegar(destinoId) {
+      if (!this.portapapeles.ids.length) return
+      const motivo = this.motivoNoPegar(destinoId)
+      if (motivo) {
+        this.agregarNotificacion({ id: 'pegar', tipo: 'error', mensaje: motivo, icono: 'pi-clipboard' })
+        return
+      }
+      if (this.portapapeles.modo === 'copiar') {
+        await this.copiarItems(this.portapapeles.ids, destinoId)
+      } else if (await this.moverItems(this.portapapeles.ids, destinoId)) {
+        this.vaciarPortapapeles()
+        await this.recargar()
+      }
+    },
+
+    // Lo copiado se queda en el portapapeles: se puede pegar más veces
+    async copiarItems(ids, destinoId) {
+      this.agregarNotificacion({ id: 'pegar', tipo: 'cargando', mensaje: 'Copiando…', icono: 'pi-copy' })
+      try {
+        const { copiados } = await apiItems.copiar(ids, destinoId)
+        this.actualizarNotificacion('pegar', {
+          tipo: 'exito',
+          mensaje: copiados === 1 ? 'Elemento copiado' : `${copiados} elementos copiados`,
+          icono: 'pi-check',
+        })
+        await this.recargar()
+      } catch (error) {
+        this.actualizarNotificacion('pegar', {
+          tipo: 'error',
+          mensaje: mensajeDeAccion(error, 'No se pudo copiar'),
+          icono: 'pi-times',
+        }, 5)
+      } finally {
+        await this.cargarEspacio()
       }
     },
 

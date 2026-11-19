@@ -241,6 +241,27 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
 
     @extend_schema(
         request=MoverSerializer,
+        responses=inline_serializer('CopiarResponse', fields={
+            'detail': drf_serializers.CharField(),
+            'copiados': drf_serializers.IntegerField(),
+        }),
+    )
+    @action(detail=False, methods=['post'])
+    def copiar(self, request):
+        datos = MoverSerializer(data=request.data, context={'request': request})
+        datos.is_valid(raise_exception=True)
+        try:
+            copias = ItemService.copiar_items(
+                datos.validated_data['ids'], datos.validated_data['destino'], request.user,
+            )
+        except CuotaExcedida as e:
+            return respuesta_cuota(e)
+        if copias:
+            threading.Thread(target=ItemService.procesar_copias, args=(copias,), daemon=True).start()
+        return Response({'detail': f'Se han copiado {len(copias)} elementos.', 'copiados': len(copias)})
+
+    @extend_schema(
+        request=MoverSerializer,
         responses=inline_serializer('MoverResponse', fields={'detail': drf_serializers.CharField()}),
     )
     @action(detail=False, methods=['post'])

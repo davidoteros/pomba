@@ -51,6 +51,10 @@ class BorradoGarageFallido(Exception):
     """Garage no pudo borrar alguna key."""
 
 
+# Tope de elementos por copia: se copia dentro de la misma petición
+MAX_ELEMENTOS_COPIA = 1000
+
+
 # =========================================================
 # PREVISUALIZACIÓN
 # =========================================================
@@ -498,6 +502,88 @@ class ItemService:
         item.padre = nueva_carpeta_padre
 
         return ItemService.guardar_item(item)
+
+    @staticmethod
+    def _arbol_para_copiar(raices, usuario):
+        """Las raíces y lo que cuelga de ellas fuera de la papelera, cada carpeta antes que sus hijos."""
+        orden = list(raices)
+        vistos = {r.id for r in raices}
+        nivel = [r.id for r in raices if r.tipo == Item.Tipo.CARPETA]
+        while nivel and len(orden) <= MAX_ELEMENTOS_COPIA:
+            hijos = [
+                h for h in Item.objects.filter(usuario=usuario, padre_id__in=nivel, eliminado=False).order_by('id')
+                if h.id not in vistos
+            ]
+            orden += hijos
+            vistos.update(h.id for h in hijos)
+            nivel = [h.id for h in hijos if h.tipo == Item.Tipo.CARPETA]
+        return orden
+
+    @staticmethod
+    def copiar_items(ids, destino, usuario):
+        """
+        Copia items (con el contenido de las carpetas) a destino y devuelve las copias.
+        Una copia es un fichero nuevo, con su propio objeto en Garage (como Nextcloud, no un alias).
+        Todo o nada: si no cabe o Garage falla a mitad, no queda ninguna copia.
+        """
+        raices = list(Item.objects.filter(id__in=ids, usuario=usuario, eliminado=False).order_by('id'))
+        if destino and any(ItemService.check_cycle(r, destino) for r in raices):
+            raise DjangoValidationError('Una carpeta no puede ir dentro de sí misma.')
+        orden = ItemService._arbol_para_copiar(raices, usuario)
+        if len(orden) > MAX_ELEMENTOS_COPIA:
+            raise DjangoValidationError(f'No se pueden copiar más de {MAX_ELEMENTOS_COPIA} elementos a la vez.')
+        total = sum(i.tamano_bytes or 0 for i in orden if i.tipo == Item.Tipo.ARCHIVO)
+
+        s3 = ItemService.get_s3_client()
+        bucket = settings.AWS_STORAGE_BUCKET_NAME
+        ids_raiz = {r.id for r in raices}
+        copias = {}
+        keys_copiadas = []
+        try:
+            with transaction.atomic():
+                # La misma llave que al subir (punto 28): comprobar y ocupar sitio de una vez
+                ItemService._bloquear_usuario(usuario)
+                ItemService.comprobar_espacio_libre(usuario, total)
+                for original in orden:
+                    es_raiz = original.id in ids_raiz
+                    padre = destino if es_raiz else copias[original.padre_id]
+                    copia = Item(
+                        usuario=usuario,
+                        nombre=ItemService._nombre_disponible(usuario, original.nombre, padre) if es_raiz else original.nombre,
+                        tipo=original.tipo,
+                        padre=padre,
+                        tamano_bytes=original.tamano_bytes,
+                        mime_type=original.mime_type,
+                        metadatos=dict(original.metadatos or {}),
+                    )
+                    if original.tipo == Item.Tipo.ARCHIVO and original.file:
+                        # Garage copia por dentro, sin bajar ni volver a subir los bytes
+                        _, extension = os.path.splitext(str(original.file))
+                        key = f"files/{uuid.uuid4().hex}{extension}"
+                        s3.copy_object(Bucket=bucket, Key=key, CopySource={'Bucket': bucket, 'Key': str(original.file)})
+                        keys_copiadas.append(key)
+                        copia.file = key
+                    ItemService.guardar_item(copia)
+                    # Como al subir: un audio nace con su versión 1 (el mismo objeto, sin bytes extra)
+                    if copia.file and (copia.mime_type or '').startswith('audio/'):
+                        ItemVersion.objects.create(
+                            item=copia, numero=1, file=str(copia.file), tamano_bytes=copia.tamano_bytes or 0,
+                            mime_type=copia.mime_type, metadatos={}, es_actual=True,
+                        )
+                    copias[original.id] = copia
+        except Exception:
+            try:
+                ItemService.delete_s3_keys(keys_copiadas, bucket)
+            except Exception:
+                logger.exception('No se pudieron borrar de Garage %d copias a medias', len(keys_copiadas))
+            raise
+        return list(copias.values())
+
+    @staticmethod
+    def procesar_copias(copias):
+        """Vista previa de los SVG copiados; el índice de búsqueda ya se actualiza solo al guardar."""
+        for copia in copias:
+            ItemService.generar_preview_png(copia)
     
     @staticmethod
     def _nombre_disponible(usuario, nombre, padre):
@@ -613,7 +699,11 @@ class ItemService:
                 f'El archivo supera el máximo de {filesizeformat(settings.LIMITE_FICHERO_BYTES)} por fichero.',
                 motivo='fichero',
             )
+        ItemService.comprobar_espacio_libre(usuario, tamano_bytes)
 
+    @staticmethod
+    def comprobar_espacio_libre(usuario, tamano_bytes):
+        """Lanza CuotaExcedida si tamano_bytes no cabe en lo libre. Copiar usa solo esto: sus ficheros ya pasaron el límite."""
         ocupado = ItemService.espacio_ocupado(usuario)
         if ocupado + tamano_bytes > settings.CUOTA_USUARIO_BYTES:
             libre = max(settings.CUOTA_USUARIO_BYTES - ocupado, 0)

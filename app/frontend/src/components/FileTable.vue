@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onUnmounted } from 'vue'
+import { tinykeys } from 'tinykeys'
 import { useRoute, useRouter } from 'vue-router'
 import { useGestorItems } from '@/stores/items'
 import { useConfirmacion } from '@/composables/useConfirmacion'
@@ -159,7 +160,7 @@ function abrirMenu(event, item, vacio) {
   menuAbierto.value = null
 
   const MENU_W = 176
-  const MENU_H = vacio ? 130 : 230
+  const MENU_H = vacio ? (gestor.portapapeles.ids.length ? 175 : 130) : 302
   const x = event.clientX + MENU_W > window.innerWidth ? event.clientX - MENU_W : event.clientX
   const y = event.clientY + MENU_H > window.innerHeight ? event.clientY - MENU_H : event.clientY
 
@@ -317,6 +318,10 @@ async function accionContextMenu(accion) {
 
   if (accion === 'nuevaCarpeta') {
     gestor.abrirModal('crearCarpeta')
+  } else if (accion === 'cortar' || accion === 'copiar') {
+    gestor.guardarEnPortapapeles(accion)
+  } else if (accion === 'pegar') {
+    await gestor.pegar(carpetaActual())
   } else if (accion === 'subirArchivo' || accion === 'subirCarpeta') {
     gestor.elegirYSubir(accion === 'subirCarpeta' ? 'carpeta' : 'archivo', carpetaActual())
   } else if (accion === 'info') {
@@ -354,22 +359,57 @@ function handleDocumentClick() {
 
 // La tecla "delete" del Mac envía Backspace; en Windows y Linux Backspace no borra
 const esMac = /Mac/i.test(navigator.platform)
+const atajo = (tecla) => (esMac ? `⌘${tecla}` : `Ctrl+${tecla}`)
+
+// Comprobaciones comunes de los atajos: ni escribiendo, ni con texto seleccionado, ni con una ventana abierta
+function tecladoLibre(event) {
+  const escribiendo = event.target.closest?.('input, textarea, select, [contenteditable="true"]')
+  const textoSeleccionado = window.getSelection()?.toString()
+  const ventanaAbierta = document.querySelector('.p-dialog')
+  return !esTactil && !event.repeat && !escribiendo && !textoSeleccionado && !ventanaAbierta && !gestor.arrastre.ids.length
+}
 
 function handleTeclaEliminar(event) {
   const conModificador = event.ctrlKey || event.metaKey || event.altKey || event.shiftKey
-  const escribiendo = event.target.closest?.('input, textarea, select, [contenteditable="true"]')
-  const ventanaAbierta = document.querySelector('.p-dialog')
-  if (esTactil || event.repeat || conModificador || escribiendo || ventanaAbierta) return
-  if (!gestor.seleccion.ids.length || gestor.arrastre.ids.length) return
+  if (conModificador || !tecladoLibre(event) || !gestor.seleccion.ids.length) return
   event.preventDefault()
   menuAbierto.value = null
   accionContextMenu(enPapelera.value ? 'deleteForever' : 'delete')
 }
 
+function guardarConTeclado(event, modo) {
+  if (!tecladoLibre(event) || enPapelera.value || !gestor.seleccion.ids.length) return
+  event.preventDefault()
+  gestor.guardarEnPortapapeles(modo)
+}
+
+// ⌘ en Mac y Ctrl en Windows y Linux ($mod de tinykeys)
+const quitarAtajos = tinykeys(window, {
+  '$mod+x': (event) => guardarConTeclado(event, 'cortar'),
+  '$mod+c': (event) => guardarConTeclado(event, 'copiar'),
+  '$mod+v': (event) => {
+    if (!tecladoLibre(event) || !enMiUnidad.value || !gestor.portapapeles.ids.length) return
+    event.preventDefault()
+    gestor.pegar(carpetaActual())
+  },
+})
+
+const textoPortapapeles = computed(() => {
+  const n = gestor.portapapeles.ids.length
+  const hecho = gestor.portapapeles.modo === 'copiar' ? 'copiado' : 'cortado'
+  const que = n === 1 ? `1 elemento ${hecho}` : `${n} elementos ${hecho}s`
+  const donde = enMiUnidad.value ? `${atajo('V')} para pegar aquí` : 'abre una carpeta de Mi unidad para pegar'
+  return `${que} · ${donde} · Esc para cancelar`
+})
+
 function handleKeydown(event) {
   if (event.key === 'Escape') {
-    menuAbierto.value = null
-    contextMenu.value.visible = false
+    if (menuAbierto.value !== null || contextMenu.value.visible) {
+      menuAbierto.value = null
+      contextMenu.value.visible = false
+    } else if (!document.querySelector('.p-dialog')) {
+      gestor.vaciarPortapapeles()
+    }
   } else if (event.key === 'Delete' || (esMac && event.key === 'Backspace')) {
     handleTeclaEliminar(event)
   }
@@ -387,6 +427,7 @@ onUnmounted(() => {
   document.removeEventListener('drop', handleSoltarMover)
   document.removeEventListener('dragend', gestor.limpiarArrastre)
   clearTimeout(apagarArrastre)
+  quitarAtajos()
 })
 
 function estaSeleccionado(item) {
@@ -482,7 +523,7 @@ const emptyState = computed(() => {
           :class="[
             'group cursor-pointer outline-none transition-colors duration-100 border-b border-surface-200 dark:border-surface-800',
             (destinoSoltar?.id === item.id || gestor.esDestinoArrastre(item.id)) && CLASE_DESTINO,
-            gestor.arrastre.ids.includes(item.id) && 'opacity-40',
+            (gestor.arrastre.ids.includes(item.id) || gestor.estaCortado(item.id)) && 'opacity-40',
             estaSeleccionado(item)
               ? 'bg-primary/20 dark:bg-primary/25'
               : 'hover:bg-surface-100 dark:hover:bg-surface-800',
@@ -679,6 +720,15 @@ const emptyState = computed(() => {
         <i class="pi pi-arrows-alt" /> <span>Arrastra hasta una carpeta</span>
       </template>
     </div>
+    <div
+      v-if="gestor.portapapeles.ids.length && !gestor.arrastre.ids.length && !arrastrando && !esTactil"
+      role="status"
+      class="fixed bottom-10 left-1/2 -translate-x-1/2 z-200 pointer-events-none max-w-[90vw]
+             flex items-center gap-2 px-4 py-2.5 rounded-full shadow-lg text-sm font-medium whitespace-nowrap
+             bg-surface-800 dark:bg-surface-700 text-surface-0"
+    >
+      <i class="pi pi-clipboard" /> <span class="truncate">{{ textoPortapapeles }}</span>
+    </div>
   </Teleport>
 
   <!-- Context menu (click derecho) -->
@@ -713,6 +763,16 @@ const emptyState = computed(() => {
           >
             <i class="pi pi-folder-open text-surface-400" /> Subir carpeta
           </button>
+          <template v-if="gestor.portapapeles.ids.length">
+            <div class="my-1 border-t border-surface-200 dark:border-surface-800" />
+            <button
+              @click="accionContextMenu('pegar')"
+              class="w-full flex items-center gap-2 px-3 py-2 text-sm text-left text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors"
+            >
+              <i class="pi pi-clipboard text-surface-400" /> Pegar
+              <span class="ml-auto text-xs text-surface-400">{{ atajo('V') }}</span>
+            </button>
+          </template>
         </template>
 
         <template v-else-if="enPapelera">
@@ -786,6 +846,20 @@ const emptyState = computed(() => {
             class="w-full flex items-center gap-2 px-3 py-2 text-sm text-left text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors"
           >
             <i class="pi pi-arrow-right text-surface-400" /> Mover a...
+          </button>
+          <button
+            @click="accionContextMenu('copiar')"
+            class="w-full flex items-center gap-2 px-3 py-2 text-sm text-left text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors"
+          >
+            <i class="pi pi-copy text-surface-400" /> Copiar
+            <span class="ml-auto text-xs text-surface-400">{{ atajo('C') }}</span>
+          </button>
+          <button
+            @click="accionContextMenu('cortar')"
+            class="w-full flex items-center gap-2 px-3 py-2 text-sm text-left text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors"
+          >
+            <i class="pi pi-file-export text-surface-400" /> Cortar
+            <span class="ml-auto text-xs text-surface-400">{{ atajo('X') }}</span>
           </button>
           <div class="my-1 border-t border-surface-200 dark:border-surface-800" />
           <button

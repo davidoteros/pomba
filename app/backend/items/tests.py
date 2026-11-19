@@ -791,3 +791,134 @@ class InterruptorVersionesTests(TestCase):
                 respuesta = getattr(self.cliente, metodo)(url, cuerpo, format='json')
                 self.assertEqual(respuesta.status_code, 404)
         self.assertEqual(self.audio.versiones.count(), 1)
+
+
+@mock.patch('items.services.ItemService.procesar_copias')
+@mock.patch.object(registry, 'delete_related')
+@mock.patch.object(registry, 'update_related')
+@mock.patch.object(registry, 'update')
+@mock.patch.object(registry, 'delete')
+@mock.patch('items.services.ItemService.get_s3_client')
+@override_settings(CUOTA_USUARIO_BYTES=10_000, LIMITE_FICHERO_BYTES=500)
+class CopiarTests(TestCase):
+    """Copiar crea ficheros nuevos de verdad (no alias), con su propio objeto en Garage y dentro de la cuota."""
+
+    def setUp(self):
+        self.usuario = Usuario.objects.create_user(email='copiar@prueba.com', password='Prueba1234!')
+        self.cliente = APIClient(raise_request_exception=False)
+        self.cliente.force_authenticate(self.usuario)
+
+    def carpeta(self, nombre, padre=None, **extra):
+        return Item.objects.create(usuario=self.usuario, nombre=nombre, tipo=Item.Tipo.CARPETA, padre=padre, **extra)
+
+    def archivo(self, nombre, padre=None, tamano=100, mime='text/plain', **extra):
+        return Item.objects.create(
+            usuario=self.usuario, nombre=nombre, tipo=Item.Tipo.ARCHIVO, padre=padre, file=f'files/{nombre}',
+            tamano_bytes=tamano, mime_type=mime, **extra,
+        )
+
+    def copiar(self, ids, destino):
+        destino = destino.id if destino else None
+        return self.cliente.post('/api/items/copiar/', {'ids': ids, 'destino': destino}, format='json')
+
+    def test_copia_un_archivo_con_objeto_propio(self, s3_cliente, *_):
+        destino = self.carpeta('Destino')
+        original = self.archivo('a.txt', metadatos={'lineas': 3})
+        respuesta = self.copiar([original.id], destino)
+        self.assertEqual(respuesta.status_code, 200)
+        copia = Item.objects.get(padre=destino, nombre='a.txt')
+        self.assertNotEqual(copia.id, original.id)
+        self.assertNotEqual(str(copia.file), str(original.file))
+        self.assertTrue(str(copia.file).startswith('files/') and str(copia.file).endswith('.txt'))
+        self.assertEqual((copia.tamano_bytes, copia.mime_type, copia.metadatos), (100, 'text/plain', {'lineas': 3}))
+        s3_cliente.return_value.copy_object.assert_called_once()
+        llamada = s3_cliente.return_value.copy_object.call_args.kwargs
+        self.assertEqual(llamada['CopySource']['Key'], 'files/a.txt')
+        self.assertEqual(llamada['Key'], str(copia.file))
+        original.refresh_from_db()
+        self.assertIsNone(original.padre_id)
+
+    def test_en_la_misma_carpeta_numera_el_nombre(self, *_):
+        original = self.archivo('a.txt')
+        self.assertEqual(self.copiar([original.id], None).status_code, 200)
+        self.assertEqual(
+            sorted(Item.objects.filter(padre=None).values_list('nombre', flat=True)), ['a (1).txt', 'a.txt'],
+        )
+
+    def test_copia_una_carpeta_entera_sin_la_papelera(self, s3_cliente, *_):
+        fotos = self.carpeta('Fotos')
+        viaje = self.carpeta('Viaje', fotos)
+        self.archivo('uno.jpg', fotos)
+        self.archivo('dos.jpg', viaje)
+        self.archivo('borrada.jpg', fotos, eliminado=True)
+        destino = self.carpeta('Destino')
+        self.assertEqual(self.copiar([fotos.id], destino).status_code, 200)
+        copia = Item.objects.get(padre=destino, nombre='Fotos')
+        self.assertEqual(sorted(copia.hijos.values_list('nombre', flat=True)), ['Viaje', 'uno.jpg'])
+        self.assertEqual(list(Item.objects.get(padre=copia, nombre='Viaje').hijos.values_list('nombre', flat=True)), ['dos.jpg'])
+        self.assertEqual(s3_cliente.return_value.copy_object.call_count, 2)
+
+    def test_una_carpeta_no_se_copia_dentro_de_si_misma(self, s3_cliente, *_):
+        fotos = self.carpeta('Fotos')
+        dentro = self.carpeta('Dentro', fotos)
+        for destino in (fotos, dentro):
+            with self.subTest(destino=destino.nombre):
+                respuesta = self.copiar([fotos.id], destino)
+                self.assertEqual(respuesta.status_code, 400)
+        self.assertEqual(Item.objects.count(), 2)
+        s3_cliente.return_value.copy_object.assert_not_called()
+
+    def test_sin_espacio_no_copia_nada(self, s3_cliente, *_):
+        original = self.archivo('grande.bin', tamano=400)
+        self.archivo('ocupa.bin', tamano=9_500)
+        respuesta = self.copiar([original.id], None)
+        self.assertEqual(respuesta.status_code, 413)
+        self.assertEqual(respuesta.json()['motivo'], 'cuota')
+        self.assertEqual(Item.objects.count(), 2)
+        s3_cliente.return_value.copy_object.assert_not_called()
+
+    def test_una_carpeta_mayor_que_el_limite_por_fichero_si_se_copia(self, *_):
+        fotos = self.carpeta('Fotos')
+        self.archivo('uno.jpg', fotos, tamano=400)
+        self.archivo('dos.jpg', fotos, tamano=400)
+        self.assertEqual(self.copiar([fotos.id], None).status_code, 200)
+
+    def test_si_garage_falla_a_mitad_se_deshace_todo(self, s3_cliente, *_):
+        self.archivo('uno.txt')
+        self.archivo('dos.txt')
+        ids = list(Item.objects.values_list('id', flat=True))
+        s3 = s3_cliente.return_value
+        s3.copy_object.side_effect = [None, EndpointConnectionError(endpoint_url='http://garage')]
+        s3.delete_objects.return_value = {}
+        respuesta = self.copiar(ids, None)
+        self.assertEqual(respuesta.status_code, 503)
+        self.assertEqual(Item.objects.count(), 2)
+        primera = s3.copy_object.call_args_list[0].kwargs['Key']
+        borradas = [o['Key'] for o in s3.delete_objects.call_args.kwargs['Delete']['Objects']]
+        self.assertEqual(borradas, [primera])
+
+    def test_ids_ajenos_se_ignoran(self, s3_cliente, *_):
+        otro = Usuario.objects.create_user(email='otro@prueba.com', password='Prueba1234!')
+        ajeno = Item.objects.create(usuario=otro, nombre='x.txt', tipo=Item.Tipo.ARCHIVO, file='files/x.txt', tamano_bytes=1)
+        self.assertEqual(self.copiar([ajeno.id], None).status_code, 200)
+        self.assertFalse(Item.objects.filter(usuario=self.usuario).exists())
+        s3_cliente.return_value.copy_object.assert_not_called()
+
+    def test_un_audio_copiado_lleva_su_version_1(self, *_):
+        audio = self.archivo('a.mp3', mime='audio/mpeg')
+        audio.versiones.create(numero=1, file='files/a.mp3', tamano_bytes=100, mime_type='audio/mpeg', es_actual=True)
+        audio.versiones.create(numero=2, file='files/v/b.mp3', tamano_bytes=50, mime_type='audio/mpeg', es_actual=False)
+        self.assertEqual(self.copiar([audio.id], None).status_code, 200)
+        copia = Item.objects.exclude(id=audio.id).get()
+        self.assertEqual(list(copia.versiones.values_list('numero', 'file', 'es_actual')), [(1, str(copia.file), True)])
+
+    def test_mas_de_1000_elementos_da_400(self, s3_cliente, *_):
+        carpeta = self.carpeta('Muchos')
+        Item.objects.bulk_create([
+            Item(usuario=self.usuario, nombre=f'{i}.txt', tipo=Item.Tipo.ARCHIVO, padre=carpeta, file=f'files/{i}.txt', tamano_bytes=0)
+            for i in range(1000)
+        ])
+        respuesta = self.copiar([carpeta.id], None)
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertIn('1000', respuesta.json()['errors'][0]['detail'])
+        s3_cliente.return_value.copy_object.assert_not_called()

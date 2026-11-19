@@ -64,6 +64,11 @@ export const apiItems = {
     await api.post('items/mover/', { ids, destino: destinoId })
   },
 
+  async copiar(ids, destinoId) {
+    const { data } = await api.post('items/copiar/', { ids, destino: destinoId })
+    return data
+  },
+
   async marcarFavorito(id) {
     const { data } = await api.post('items/favorito/', { id })
     return data

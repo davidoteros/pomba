@@ -304,7 +304,8 @@ function clasesSnackbar(notif) {
   <SettingsModal v-model="mostrarAjustes" />
 
   <!-- SNACKBARS -->
-  <div class="fixed bottom-20 left-3 z-50 flex flex-col-reverse gap-2 sm:bottom-6 sm:left-6">
+  <!-- Abajo a la derecha para no tapar la barra de espacio; en móvil a la izquierda, porque ahí está el botón + -->
+  <div class="fixed bottom-20 left-3 z-50 flex flex-col-reverse gap-2 sm:bottom-6 sm:left-auto sm:right-6 sm:items-end">
     <TransitionGroup name="snack">
       <div
         v-for="notif in gestor.notificaciones"
