@@ -50,9 +50,9 @@ const estiloPanel = computed(() =>
 const item = computed(() => gestor.itemPanelInfo)
 const tabActiva = ref('detalles')
 
-// Solo los archivos de audio tienen pestaña de versiones
+// Lo decide el servidor: audio y control de versiones encendido en el .env
 const mostrarPestanaVersiones = computed(() =>
-  item.value?.tipo === 'archivo' && (item.value.mime_type || '').startsWith('audio/'),
+  item.value?.admite_versiones === true,
 )
 
 // Cerrar el panel si el ítem desaparece (borrado o movido fuera de la vista)
@@ -301,6 +301,8 @@ const tieneMetadatos = computed(() =>
               ]"
             >
               Versiones
+              <span class="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide align-middle
+                           bg-primary/15 text-primary-700 dark:text-primary-300">Beta</span>
             </button>
           </div>
 

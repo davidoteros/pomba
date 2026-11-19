@@ -93,6 +93,15 @@ def mime_con_preview_generada(mime_type):
     return (mime_type or '').split(';')[0].strip().lower() in MIME_CON_PREVIEW_GENERADA
 
 
+def admite_versiones(item):
+    """Si el item tiene control de versiones: encendido en el .env y es un audio."""
+    return (
+        settings.VERSIONES_AUDIO
+        and item.tipo == Item.Tipo.ARCHIVO
+        and (item.mime_type or '').startswith('audio/')
+    )
+
+
 def tipo_visor(mime_type):
     """
     Con qué visor debe mostrarlo el frontend: 'imagen', 'audio', 'video', 'pdf' o None.

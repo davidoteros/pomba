@@ -741,3 +741,53 @@ class EspacioTests(TestCase):
 
     def test_sin_sesion_no_hay_espacio(self, *_):
         self.assertEqual(APIClient().get('/api/items/espacio/').status_code, 403)
+
+
+@mock.patch.object(registry, 'delete_related')
+@mock.patch.object(registry, 'update_related')
+@mock.patch.object(registry, 'update')
+@mock.patch.object(registry, 'delete')
+@mock.patch('items.services.ItemService.get_s3_client')
+class InterruptorVersionesTests(TestCase):
+    """VERSIONES_AUDIO del .env enciende o apaga el control de versiones en el servidor y en la interfaz."""
+
+    def setUp(self):
+        self.usuario = Usuario.objects.create_user(email='versiones@prueba.com', password='Prueba1234!')
+        self.cliente = APIClient()
+        self.cliente.force_authenticate(self.usuario)
+        self.audio = Item.objects.create(
+            usuario=self.usuario, nombre='a.mp3', tipo=Item.Tipo.ARCHIVO, file='files/a.mp3',
+            mime_type='audio/mpeg', tamano_bytes=10,
+        )
+        self.audio.versiones.create(numero=1, file='files/a.mp3', tamano_bytes=10, mime_type='audio/mpeg', es_actual=True)
+        self.texto = Item.objects.create(
+            usuario=self.usuario, nombre='t.txt', tipo=Item.Tipo.ARCHIVO, file='files/t.txt', mime_type='text/plain',
+        )
+
+    def admite(self):
+        items = {i['nombre']: i for i in self.cliente.get('/api/items/').json()['items']}
+        return items['a.mp3']['admite_versiones'], items['t.txt']['admite_versiones']
+
+    @override_settings(VERSIONES_AUDIO=True)
+    def test_encendido_solo_el_audio_admite_versiones(self, *_):
+        self.assertEqual(self.admite(), (True, False))
+        self.assertEqual(self.cliente.get(f'/api/items/{self.audio.id}/versiones/').status_code, 200)
+
+    @override_settings(VERSIONES_AUDIO=False)
+    def test_apagado_nada_admite_versiones_y_las_rutas_dan_404(self, *_):
+        self.assertEqual(self.admite(), (False, False))
+        base = f'/api/items/{self.audio.id}/versiones'
+        rutas = [
+            ('get', f'{base}/', None),
+            ('post', f'{base}/solicitar_subida/', {'tamano_bytes': 5}),
+            ('post', f'{base}/confirmar_subida/', {'key': 'files/v/x.mp3', 'mime_type': 'audio/mpeg'}),
+            ('get', f'{base}/1/descargar/', None),
+            ('post', f'{base}/1/activar/', None),
+            ('get', f'{base}/1/previsualizar/', None),
+            ('delete', f'{base}/1/', None),
+        ]
+        for metodo, url, cuerpo in rutas:
+            with self.subTest(url=url):
+                respuesta = getattr(self.cliente, metodo)(url, cuerpo, format='json')
+                self.assertEqual(respuesta.status_code, 404)
+        self.assertEqual(self.audio.versiones.count(), 1)

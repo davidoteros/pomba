@@ -216,6 +216,9 @@ SPECTACULAR_SETTINGS = {
 # Publicar el esquema OpenAPI (/api/schema/ y Swagger/Redoc). Desactivado por defecto
 EXPONER_API_SCHEMA = os.environ.get('EXPONER_API_SCHEMA', 'false').lower() == 'true'
 
+# Control de versiones de audio (beta). Apagado: se esconde y sus rutas dan 404, sin borrar las versiones guardadas
+VERSIONES_AUDIO = os.environ.get('VERSIONES_AUDIO', 'true').lower() == 'true'
+
 DRF_STANDARDIZED_ERRORS = {
     'ENABLE_IN_DEBUG_FOR_UNHANDLED_EXCEPTIONS': True,
     'EXCEPTION_HANDLER_CLASS': 'core.exceptions.ManejadorErrores',

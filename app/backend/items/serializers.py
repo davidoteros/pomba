@@ -5,6 +5,7 @@ from rest_framework import serializers
 from .models import Item, ItemVersion, validar_nombre_item
 from .services import (
     ItemService,
+    admite_versiones,
     mime_previsualizable,
     mime_con_preview_generada,
     tipo_visor,
@@ -30,6 +31,8 @@ class ItemSerializer(serializers.ModelSerializer):
     previsualizable = serializers.SerializerMethodField()
     # Con qué visor lo muestra el frontend: 'imagen', 'audio', 'video' o 'pdf'.
     tipo_visor = serializers.SerializerMethodField()
+    # Si el panel enseña la pestaña Versiones (lo decide el servidor, no Vue)
+    admite_versiones = serializers.SerializerMethodField()
 
     class Meta:
         model = Item
@@ -44,6 +47,7 @@ class ItemSerializer(serializers.ModelSerializer):
             "mime_type",
             "previsualizable",
             "tipo_visor",
+            "admite_versiones",
             "metadatos",
             "favorito",
             "eliminado",
@@ -80,6 +84,10 @@ class ItemSerializer(serializers.ModelSerializer):
         if not self.get_previsualizable(obj):
             return None
         return tipo_visor(obj.mime_type)
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_admite_versiones(self, obj):
+        return admite_versiones(obj)
 
 
 

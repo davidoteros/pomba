@@ -4,7 +4,7 @@ from rest_framework import status
 from rest_framework.mixins import ListModelMixin, CreateModelMixin
 from rest_framework.viewsets import GenericViewSet
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError as DRFValidationError
+from rest_framework.exceptions import NotFound, ValidationError as DRFValidationError
 from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 from django.db.models import Exists, OuterRef
@@ -392,6 +392,12 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
     # VERSIONES (solo audio)
     # =========================================================
 
+    # Con VERSIONES_AUDIO apagado no existen: 404 aunque se llamen a mano
+    def _item_con_versiones(self):
+        if not settings.VERSIONES_AUDIO:
+            raise NotFound('El control de versiones está desactivado.')
+        return self.get_object()
+
     @extend_schema(
         responses=inline_serializer('VersionesListarResponse', fields={
             'versiones': ItemVersionSerializer(many=True),
@@ -400,7 +406,7 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
     )
     @action(detail=True, methods=['get'], url_path='versiones', url_name='versiones-listar')
     def versiones_listar(self, request, pk=None):
-        item = self.get_object()
+        item = self._item_con_versiones()
         versiones = ItemService.listar_versiones(item)
         serializer = ItemVersionSerializer(versiones, many=True)
         version_activa = item.versiones.filter(es_actual=True).first()
@@ -416,7 +422,7 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
     )
     @action(detail=True, methods=['post'], url_path='versiones/solicitar_subida', url_name='versiones-solicitar')
     def versiones_solicitar_subida(self, request, pk=None):
-        item = self.get_object()
+        item = self._item_con_versiones()
         if item.tipo != Item.Tipo.ARCHIVO or not (item.mime_type or '').startswith('audio/'):
             return Response(
                 {'detail': 'El control de versiones solo está disponible para archivos de audio.'},
@@ -441,7 +447,7 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
     )
     @action(detail=True, methods=['post'], url_path='versiones/confirmar_subida', url_name='versiones-confirmar')
     def versiones_confirmar_subida(self, request, pk=None):
-        item = self.get_object()
+        item = self._item_con_versiones()
         datos = VersionConfirmarSubidaSerializer(data=request.data)
         datos.is_valid(raise_exception=True)
 
@@ -465,7 +471,7 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
     )
     @action(detail=True, methods=['get'], url_path=r'versiones/(?P<num>[0-9]+)/descargar', url_name='versiones-descargar')
     def versiones_descargar(self, request, pk=None, num=None):
-        item = self.get_object()
+        item = self._item_con_versiones()
         try:
             version = item.versiones.get(numero=int(num))
         except ItemVersion.DoesNotExist:
@@ -476,7 +482,7 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
     @extend_schema(request=None, responses=ItemSerializer)
     @action(detail=True, methods=['post'], url_path=r'versiones/(?P<num>[0-9]+)/activar', url_name='versiones-activar')
     def versiones_activar(self, request, pk=None, num=None):
-        item = self.get_object()
+        item = self._item_con_versiones()
         try:
             version = item.versiones.get(numero=int(num))
         except ItemVersion.DoesNotExist:
@@ -490,7 +496,7 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
     )
     @action(detail=True, methods=['get'], url_path=r'versiones/(?P<num>[0-9]+)/previsualizar', url_name='versiones-previsualizar')
     def versiones_previsualizar(self, request, pk=None, num=None):
-        item = self.get_object()
+        item = self._item_con_versiones()
         try:
             version = item.versiones.get(numero=int(num))
         except ItemVersion.DoesNotExist:
@@ -506,7 +512,7 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
     @extend_schema(responses={204: None})
     @action(detail=True, methods=['delete'], url_path=r'versiones/(?P<num>[0-9]+)', url_name='versiones-eliminar')
     def versiones_eliminar(self, request, pk=None, num=None):
-        item = self.get_object()
+        item = self._item_con_versiones()
         try:
             version = item.versiones.get(numero=int(num))
         except ItemVersion.DoesNotExist:
