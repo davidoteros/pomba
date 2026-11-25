@@ -20,11 +20,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  publicar:
+  # Dos trabajos, como las plantillas de GitHub: publicar busca el paquete ya subido (actions/deploy-pages#451)
+  compilar:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.despliegue.outputs.page_url }}
     defaults:
       run:
         working-directory: app/frontend
@@ -41,5 +39,13 @@ jobs:
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9
         with:
           path: app/frontend/dist
+
+  publicar:
+    needs: compilar
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.despliegue.outputs.page_url }}
+    steps:
       - id: despliegue
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346
