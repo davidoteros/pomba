@@ -8,6 +8,7 @@ import { formatBytes } from '@/utils/bytes'
 import { obtenerIcono } from '@/utils/iconos'
 import { etiquetaAmigable } from '@/utils/metadatos'
 import { mensajeDeAccion } from '@/utils/errors'
+import ControlesAudio from '@/components/ControlesAudio.vue'
 
 // === STORE Y COMPOSABLES =============================================
 const gestor = useGestorItems()
@@ -440,8 +441,8 @@ const tieneMetadatos = computed(() =>
                           : 'text-surface-600 dark:text-surface-300 hover:bg-surface-200 dark:hover:bg-surface-700',
                       ]"
                     >
-                      <i :class="['pi text-xs', reproduciendo === version.numero ? 'pi-pause' : 'pi-play']" />
-                      {{ reproduciendo === version.numero ? 'Pausar' : 'Reproducir' }}
+                      <i :class="['pi text-xs', reproduciendo === version.numero ? 'pi-stop' : 'pi-play']" />
+                      {{ reproduciendo === version.numero ? 'Parar' : 'Reproducir' }}
                     </button>
                     <button
                       @click="descargarVersionAntigua(version)"
@@ -475,15 +476,13 @@ const tieneMetadatos = computed(() =>
                     </button>
                   </div>
 
-                  <div v-if="reproduciendo === version.numero" class="mt-2">
-                    <audio
-                      controls
-                      autoplay
-                      :src="urlReproduciendo"
-                      class="w-full h-8"
-                      style="border-radius: 0.5rem"
-                    />
-                  </div>
+                  <ControlesAudio
+                    v-if="reproduciendo === version.numero"
+                    compacto
+                    class="mt-2"
+                    :src="urlReproduciendo"
+                    :pista="version.numero"
+                  />
                 </div>
 
                 <!-- Sin versiones todavía -->

@@ -5,17 +5,18 @@ import Dialog from 'primevue/dialog'
 
 const VisorPdf = defineAsyncComponent(() => import('@/components/VisorPdf.vue'))
 const VisorImagen = defineAsyncComponent(() => import('@/components/VisorImagen.vue'))
+const VisorAudio = defineAsyncComponent(() => import('@/components/VisorAudio.vue'))
 
 const gestor = useGestorItems()
 
 const tipoPreview = computed(() => gestor.modal.payload?.item?.tipo_visor || null)
 
-// PDF e imágenes ocupan toda la pantalla; el resto, una ventana centrada
-const pantallaCompleta = computed(() => ['pdf', 'imagen'].includes(tipoPreview.value))
+// PDF, imágenes y audio ocupan toda la pantalla; el vídeo, una ventana centrada
+const pantallaCompleta = computed(() => ['pdf', 'imagen', 'audio'].includes(tipoPreview.value))
 
 const estiloVentana = computed(() => {
   if (pantallaCompleta.value) return { width: '100vw', height: '100dvh', maxHeight: '100dvh', margin: 0 }
-  return tipoPreview.value === 'audio' ? { width: '26rem' } : { width: '92vw', maxWidth: '1200px' }
+  return { width: '92vw', maxWidth: '1200px' }
 })
 </script>
 
@@ -43,31 +44,15 @@ const estiloVentana = computed(() => {
     />
 
     <!-- AUDIO -->
-    <div v-else-if="tipoPreview === 'audio'" class="flex flex-col bg-surface-0 dark:bg-surface-900">
-      <div class="flex items-center justify-between px-5 py-4">
-        <div class="flex items-center gap-2 min-w-0">
-          <i class="pi pi-headphones text-pink-400 shrink-0" />
-          <span class="text-surface-800 dark:text-surface-100 text-sm font-semibold truncate">
-            {{ gestor.modal.payload?.item?.nombre }}
-          </span>
-        </div>
-        <button
-          @click="gestor.cerrarModal"
-          class="w-7 h-7 shrink-0 rounded-full
-                bg-surface-100 hover:bg-surface-200
-                dark:bg-surface-700 dark:hover:bg-surface-600
-                flex items-center justify-center
-                text-surface-500 dark:text-surface-400
-                transition-colors cursor-pointer ml-2"
-          aria-label="Cerrar"
-        >
-          <i class="pi pi-times text-xs" />
-        </button>
-      </div>
-      <div class="px-5 py-6">
-        <audio controls autoplay :src="gestor.modal.payload?.url" class="w-full" />
-      </div>
-    </div>
+    <VisorAudio
+      v-else-if="tipoPreview === 'audio'"
+      :pistas="gestor.modal.payload.pistas"
+      :inicio="gestor.modal.payload.inicio"
+      :portadas="gestor.modal.payload.portadas"
+      :carpeta="gestor.modal.payload.carpeta"
+      @cerrar="gestor.cerrarModal"
+      @descargar="gestor.descargarArchivo"
+    />
 
     <!-- VIDEO -->
     <div v-else-if="tipoPreview === 'video'" class="relative bg-black">

@@ -128,6 +128,23 @@ export const useGestorItems = defineStore('items', {
         this.abrirModal('previsualizar', inicio === -1 ? { item, imagenes: [item], inicio: 0 } : { item, imagenes, inicio })
         return
       }
+      if (item.tipo_visor === 'audio') {
+        const audios = lista.filter((i) => i.tipo_visor === 'audio' && i.previsualizable)
+        const inicio = audios.indexOf(item)
+        // Carátula de cada carpeta: la imagen que se llame portada, cover o folder (como en los reproductores)
+        const portadas = {}
+        for (const i of lista) {
+          if (i.tipo_visor === 'imagen' && i.previsualizable && /^(portada|cover|folder)\.[^.]+$/i.test(i.nombre)) portadas[i.padre] ??= i
+        }
+        this.abrirModal('previsualizar', {
+          item,
+          pistas: inicio === -1 ? [item] : audios,
+          inicio: Math.max(inicio, 0),
+          portadas,
+          carpeta: this.breadcrumb.at(-1) ?? null,
+        })
+        return
+      }
       try {
         const { url } = await apiItems.previsualizar(item.id)
         this.abrirModal('previsualizar', { item, url })
