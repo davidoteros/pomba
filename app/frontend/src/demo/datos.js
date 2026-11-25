@@ -5,6 +5,7 @@ import urlBienvenida from './ficheros/bienvenida.pdf?url'
 import urlMaquetaV1 from './ficheros/maqueta-v1.wav?url'
 import urlMaquetaV2 from './ficheros/maqueta-v2.wav?url'
 import urlNotas from './ficheros/notas.txt?url'
+import urlAjito from './ficheros/ajito.jpg?url'
 
 export const CUOTA = 1024 ** 3
 export const LIMITE_FICHERO = 100 * 1024 ** 2
@@ -63,7 +64,7 @@ export function reiniciar() {
   estado.siguienteId = 1
   estado.perfil = {
     id: 1, email: 'invitado@pomba.demo', nombre: 'Invitado', apellidos: 'Demo',
-    foto_perfil_url: null, tema: temaGuardado(),
+    foto_perfil_url: urlAjito, tema: temaGuardado(),
   }
 
   const fotos = crearCarpeta('Fotos', null, haceDias(20))
