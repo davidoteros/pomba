@@ -47,7 +47,12 @@ const emit = defineEmits(['rename', 'move'])
 const menuAbierto = ref(null)
 
 //Query al navegador para saber si es movil/tablet o desktop (Esto define el tipo de click)
-const esTactil = window.matchMedia('(pointer: coarse)').matches
+// Se mira en vivo: el modo móvil de las DevTools o un portátil táctil cambian sin recargar
+const consultaTactil = window.matchMedia('(pointer: coarse)')
+const esTactil = ref(consultaTactil.matches)
+const alCambiarPuntero = (e) => { esTactil.value = e.matches }
+consultaTactil.addEventListener('change', alCambiarPuntero)
+onUnmounted(() => consultaTactil.removeEventListener('change', alCambiarPuntero))
 const enPapelera = computed(() => (route.params.view || 'drive') === 'trash')
 
 function abrirItem(item) {
@@ -56,6 +61,36 @@ function abrirItem(item) {
     name: 'home',
     params: { view: route.params.view || 'drive', folderId: item.id },
   })
+}
+
+// Al tocar, la fila se ilumina y se abre un momento después, para ver qué has tocado (como iOS)
+const PAUSA_TOQUE_MS = 120
+const filaTocada = ref(null)
+let inicioToque = null
+
+function empezarToque(event, item) {
+  if (event.pointerType !== 'touch' || event.target.closest('button')) return
+  filaTocada.value = item.id
+  inicioToque = { x: event.clientX, y: event.clientY }
+}
+
+// Si el dedo se mueve es scroll: se apaga y no abre
+function moverToque(event) {
+  if (filaTocada.value === null || event.pointerType !== 'touch') return
+  if (Math.hypot(event.clientX - inicioToque.x, event.clientY - inicioToque.y) > 10) filaTocada.value = null
+}
+
+// Por si no llega el clic (pulsación larga, menú): no se queda iluminada
+function terminarToque(event) {
+  if (event.pointerType !== 'touch') return
+  const id = filaTocada.value
+  setTimeout(() => { if (filaTocada.value === id) filaTocada.value = null }, PAUSA_TOQUE_MS * 3)
+}
+
+// Carpeta: entra; fichero que se puede ver: lo abre (en la papelera, no)
+function abrir(item) {
+  if (item.tipo === 'carpeta') abrirItem(item)
+  else if (esPrevisualizableItem(item) && !enPapelera.value) gestor.abrirModalPrevisualizar(item, itemsOrdenados.value)
 }
 
 function esPrevisualizableItem(item) {
@@ -71,9 +106,13 @@ function handleClick(event, item, index) {
     return
   }
 
-  if (esTactil) {
+  if (esTactil.value) {
     gestor.limpiarSeleccion()
-    abrirItem(item)
+    if (filaTocada.value !== item.id) return
+    setTimeout(() => {
+      filaTocada.value = null
+      abrir(item)
+    }, PAUSA_TOQUE_MS)
     return
   }
 
@@ -93,13 +132,9 @@ function handleClick(event, item, index) {
 }
 
 function handleDoubleClick(item) {
-  if (window.matchMedia('(pointer: coarse)').matches) return
+  if (esTactil.value) return
   gestor.limpiarSeleccion()
-  if (item.tipo === 'carpeta') {
-    abrirItem(item)
-  } else if (esPrevisualizableItem(item) && !enPapelera.value) {
-    gestor.abrirModalPrevisualizar(item, itemsOrdenados.value)
-  }
+  abrir(item)
 }
 
 function handleBackgroundClick(event) {
@@ -247,7 +282,7 @@ function handleDrop(event) {
 // === Mover arrastrando dentro de Pomba ==========================
 const CLASE_DESTINO = 'bg-primary/30! ring-2 ring-inset ring-primary'
 const vistaArrastre = ref(null)
-const puedeArrastrar = computed(() => !esTactil && enMiUnidad.value)
+const puedeArrastrar = computed(() => !esTactil.value && enMiUnidad.value)
 
 const queSeMueve = computed(() => {
   const { ids } = gestor.arrastre
@@ -366,7 +401,7 @@ function tecladoLibre(event) {
   const escribiendo = event.target.closest?.('input, textarea, select, [contenteditable="true"]')
   const textoSeleccionado = window.getSelection()?.toString()
   const ventanaAbierta = document.querySelector('.p-dialog')
-  return !esTactil && !event.repeat && !escribiendo && !textoSeleccionado && !ventanaAbierta && !gestor.arrastre.ids.length
+  return !esTactil.value && !event.repeat && !escribiendo && !textoSeleccionado && !ventanaAbierta && !gestor.arrastre.ids.length
 }
 
 function handleTeclaEliminar(event) {
@@ -516,6 +551,10 @@ const emptyState = computed(() => {
           :draggable="puedeArrastrar"
           @dragstart="handleInicioMover($event, item, index)"
           @click.stop="handleClick($event, item, index)"
+          @pointerdown="empezarToque($event, item)"
+          @pointermove="moverToque"
+          @pointerup="terminarToque"
+          @pointercancel="filaTocada = null"
           @dblclick.stop="handleDoubleClick(item)"
           @contextmenu.stop="handleContextMenu($event, item, index)"
           :data-carpeta-id="item.tipo === 'carpeta' ? item.id : undefined"
@@ -524,7 +563,7 @@ const emptyState = computed(() => {
             'group cursor-pointer outline-none transition-colors duration-100 border-b border-surface-200 dark:border-surface-800',
             (destinoSoltar?.id === item.id || gestor.esDestinoArrastre(item.id)) && CLASE_DESTINO,
             (gestor.arrastre.ids.includes(item.id) || gestor.estaCortado(item.id)) && 'opacity-40',
-            estaSeleccionado(item)
+            estaSeleccionado(item) || filaTocada === item.id
               ? 'bg-primary/20 dark:bg-primary/25'
               : 'hover:bg-surface-100 dark:hover:bg-surface-800',
           ]"
