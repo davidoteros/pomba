@@ -41,7 +41,26 @@ function serializar(item) {
     previsualizable: visor !== null,
     tipo_visor: visor,
     tiene_hijos: hijos(item.id).some((h) => h.eliminado === item.eliminado),
+    // Como Django con VERSIONES_AUDIO=false: sin pestaña Versiones
+    admite_versiones: false,
   }
+}
+
+// Como os.path.splitext: "notas.txt" → ["notas", ".txt"], ".bashrc" → [".bashrc", ""]
+function separarExtension(nombre) {
+  const inicio = nombre.search(/[^.]/)
+  const punto = nombre.lastIndexOf('.')
+  return inicio !== -1 && punto > inicio ? [nombre.slice(0, punto), nombre.slice(punto)] : [nombre, '']
+}
+
+// Como _nombre_disponible de Django: si ya existe en la carpeta, "notas (1).txt"
+function nombreDisponible(nombre, padre) {
+  const existe = (n) => [...estado.items.values()].some((i) => !i.eliminado && i.padre === padre && i.nombre === n)
+  if (!existe(nombre)) return nombre
+  const [base, extension] = separarExtension(nombre)
+  let contador = 1
+  while (existe(`${base} (${contador})${extension}`)) contador++
+  return `${base} (${contador})${extension}`
 }
 
 // Carpetas antes que archivos y luego por nombre, como el order_by del backend
@@ -83,10 +102,16 @@ function ocupado() {
   return total
 }
 
+function urlEnUso(url) {
+  if ([...estado.items.values()].some((i) => i.url === url)) return true
+  return [...estado.versiones.values()].some((lista) => lista.some((v) => v.url === url))
+}
+
+// Una copia comparte la dirección blob: con su original: solo se suelta cuando nadie la usa
 function borrar(item) {
-  if (item.url?.startsWith('blob:')) URL.revokeObjectURL(item.url)
   estado.items.delete(item.id)
   estado.versiones.delete(item.id)
+  if (item.url?.startsWith('blob:') && !urlEnUso(item.url)) URL.revokeObjectURL(item.url)
 }
 
 function sinAcentos(texto) {
@@ -193,11 +218,42 @@ export const respuestas = [
   }),
   http.post(`${API}/items/mover/`, async ({ request }) => {
     const { ids, destino } = await request.json()
+    const padre = destino ?? null
     for (const id of ids) {
       const item = activo(id)
-      if (item) item.padre = destino ?? null
+      if (item && item.padre !== padre) {
+        item.nombre = nombreDisponible(item.nombre, padre)
+        item.padre = padre
+      }
     }
     return HttpResponse.json({ detail: `Se han movido ${ids.length} elementos.` })
+  }),
+  http.post(`${API}/items/copiar/`, async ({ request }) => {
+    const { ids, destino } = await request.json()
+    // Primero el árbol entero (carpetas antes que sus hijos, sin la papelera) y luego las copias, como Django
+    const orden = ids.map(activo).filter(Boolean).sort((a, b) => a.id - b.id)
+    const raices = new Set(orden.map((i) => i.id))
+    const vistos = new Set(raices)
+    for (let n = 0; n < orden.length; n++) {
+      if (orden[n].tipo !== 'carpeta') continue
+      const nuevos = hijos(orden[n].id).filter((h) => !h.eliminado && !vistos.has(h.id))
+      nuevos.forEach((h) => vistos.add(h.id))
+      orden.push(...nuevos)
+    }
+    const copias = new Map()
+    for (const original of orden) {
+      const esRaiz = raices.has(original.id)
+      const padre = esRaiz ? (destino ?? null) : copias.get(original.padre).id
+      const nombre = esRaiz ? nombreDisponible(original.nombre, padre) : original.nombre
+      const copia = original.tipo === 'carpeta'
+        ? crearCarpeta(nombre, padre)
+        : crearArchivo({
+          nombre, padre, url: original.url, mime_type: original.mime_type,
+          tamano_bytes: original.tamano_bytes, metadatos: structuredClone(original.metadatos),
+        })
+      copias.set(original.id, copia)
+    }
+    return HttpResponse.json({ detail: `Se han copiado ${copias.size} elementos.`, copiados: copias.size })
   }),
   http.post(`${API}/items/favorito/`, async ({ request }) => {
     const item = estado.items.get(Number((await request.json()).id))
@@ -244,7 +300,10 @@ export const respuestas = [
     const subida = estado.subidas.get(key)
     if (!subida) return HttpResponse.json({ detail: 'Key no válida.' }, { status: 400 })
     estado.subidas.delete(key)
-    const item = crearArchivo({ nombre, padre: padre ?? null, url: subida.url, mime_type, tamano_bytes: subida.tamano })
+    const item = crearArchivo({
+      nombre: nombreDisponible(nombre, padre ?? null), padre: padre ?? null,
+      url: subida.url, mime_type, tamano_bytes: subida.tamano,
+    })
     return HttpResponse.json(serializar(item), { status: 201 })
   }),
 
