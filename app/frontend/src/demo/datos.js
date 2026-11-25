@@ -82,7 +82,6 @@ export function reiniciar() {
   }
 
   const musica = crearCarpeta('Música', null, haceDias(15))
-  const documentos = crearCarpeta('Documentos', null, haceDias(10))
   const misFotos = crearCarpeta('Mis fotos', null, haceDias(18))
 
   MIS_FOTOS.forEach(([nombre, bytes, ancho, alto], i) => crearArchivo({
@@ -90,7 +89,7 @@ export function reiniciar() {
     mime_type: 'image/jpeg', tamano_bytes: bytes, fecha: haceDias(18 - i), metadatos: { ancho, alto },
   }))
 
-  crearArchivo({ nombre: 'Bienvenida a Pomba.pdf', padre: documentos.id, url: urlBienvenida, mime_type: 'application/pdf', tamano_bytes: 61675, favorito: true, fecha: haceDias(3) })
+  crearArchivo({ nombre: 'Bienvenida a Pomba.pdf', url: urlBienvenida, mime_type: 'application/pdf', tamano_bytes: 215540, favorito: true, fecha: haceDias(1) })
   // En la papelera, una foto repetida
   crearArchivo({ nombre: '049321 (1).JPG', padre: misFotos.id, url: urlsMisFotos['./ficheros/mis-fotos/049321.jpg'], miniatura: miniatura('049321'), mime_type: 'image/jpeg', tamano_bytes: 156806, eliminado: true, fecha: haceDias(4), metadatos: { ancho: 1600, alto: 1080 } })
 
