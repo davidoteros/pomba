@@ -69,7 +69,8 @@ onBeforeUnmount(quitarTeclas)
       <div ref="emblaRef" class="absolute inset-0 overflow-hidden">
         <div class="flex h-full touch-pan-y touch-pinch-zoom">
           <div v-for="(item, i) in imagenes" :key="item.id" class="relative flex-[0_0_100%] min-w-0">
-            <div v-if="cerca(i)" class="absolute inset-0 flex items-center justify-center p-4">
+            <!-- Clic en el fondo cierra; Embla ya se come el clic que acaba un arrastre -->
+            <div v-if="cerca(i)" class="absolute inset-0 flex items-center justify-center p-4" @click.self="emit('cerrar')">
               <img
                 v-if="fotos[item.id]?.url && !fotos[item.id].error"
                 :src="fotos[item.id].url"
