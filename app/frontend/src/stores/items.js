@@ -32,6 +32,8 @@ export const useGestorItems = defineStore('items', {
       ids: [],
       padres: [],
       modo: null,
+      // Ya pegado: lo copiado se puede volver a pegar, pero sin la pastilla (como el Finder)
+      pegado: false,
     },
 
     // Mover arrastrando
@@ -118,7 +120,14 @@ export const useGestorItems = defineStore('items', {
       this.abrirModal('mover', { ids: items.map((i) => i.id) })
     },
 
-    async abrirModalPrevisualizar(item) {
+    // lista: lo que enseña la tabla, en su orden; el visor de imágenes pasa por las imágenes de ella
+    async abrirModalPrevisualizar(item, lista = [item]) {
+      if (item.tipo_visor === 'imagen') {
+        const imagenes = lista.filter((i) => i.tipo_visor === 'imagen' && i.previsualizable)
+        const inicio = imagenes.indexOf(item)
+        this.abrirModal('previsualizar', inicio === -1 ? { item, imagenes: [item], inicio: 0 } : { item, imagenes, inicio })
+        return
+      }
       try {
         const { url } = await apiItems.previsualizar(item.id)
         this.abrirModal('previsualizar', { item, url })
@@ -548,11 +557,11 @@ export const useGestorItems = defineStore('items', {
     guardarEnPortapapeles(modo) {
       const items = this.itemsSeleccionados
       if (!items.length) return
-      this.portapapeles = { ids: items.map((i) => i.id), padres: items.map((i) => i.padre ?? null), modo }
+      this.portapapeles = { ids: items.map((i) => i.id), padres: items.map((i) => i.padre ?? null), modo, pegado: false }
     },
 
     vaciarPortapapeles() {
-      this.portapapeles = { ids: [], padres: [], modo: null }
+      this.portapapeles = { ids: [], padres: [], modo: null, pegado: false }
     },
 
     // Lo mismo que evita el arrastre: ni dentro de sí misma ni donde ya está
@@ -590,6 +599,7 @@ export const useGestorItems = defineStore('items', {
           mensaje: copiados === 1 ? 'Elemento copiado' : `${copiados} elementos copiados`,
           icono: 'pi-check',
         })
+        this.portapapeles.pegado = true
         await this.recargar()
       } catch (error) {
         this.actualizarNotificacion('pegar', {

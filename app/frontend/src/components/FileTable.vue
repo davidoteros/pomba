@@ -98,7 +98,7 @@ function handleDoubleClick(item) {
   if (item.tipo === 'carpeta') {
     abrirItem(item)
   } else if (esPrevisualizableItem(item) && !enPapelera.value) {
-    gestor.abrirModalPrevisualizar(item)
+    gestor.abrirModalPrevisualizar(item, itemsOrdenados.value)
   }
 }
 
@@ -114,7 +114,7 @@ async function ejecutarAccion(accion, item) {
   if (accion === 'info') {
     gestor.abrirPanelInfo(item)
   } else if (accion === 'preview') {
-    await gestor.abrirModalPrevisualizar(item)
+    await gestor.abrirModalPrevisualizar(item, itemsOrdenados.value)
   } else if (accion === 'download') {
     gestor.seleccionar(item, null)
     await gestor.descargarItems()
@@ -329,7 +329,7 @@ async function accionContextMenu(accion) {
     if (item) gestor.abrirPanelInfo(item)
   } else if (accion === 'preview') {
     const item = gestor.itemsSeleccionados[0]
-    if (item) await gestor.abrirModalPrevisualizar(item)
+    if (item) await gestor.abrirModalPrevisualizar(item, itemsOrdenados.value)
   } else if (accion === 'download') {
     await gestor.descargarItems()
   } else if (accion === 'favorite' || accion === 'unfavorite') {
@@ -721,7 +721,7 @@ const emptyState = computed(() => {
       </template>
     </div>
     <div
-      v-if="gestor.portapapeles.ids.length && !gestor.arrastre.ids.length && !arrastrando && !esTactil"
+      v-if="gestor.portapapeles.ids.length && !gestor.portapapeles.pegado && !gestor.arrastre.ids.length && !arrastrando && !esTactil"
       role="status"
       class="fixed bottom-10 left-1/2 -translate-x-1/2 z-200 pointer-events-none max-w-[90vw]
              flex items-center gap-2 px-4 py-2.5 rounded-full shadow-lg text-sm font-medium whitespace-nowrap

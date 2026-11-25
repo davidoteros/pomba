@@ -5,6 +5,7 @@ import * as pdfjsLib from 'pdfjs-dist'
 // ?worker: Vite lo empaqueta como un .js (un .mjs suelto no lo sirven bien todos los servidores)
 import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?worker'
 import 'pdfjs-dist/web/pdf_viewer.css'
+import BarraVisor from '@/components/BarraVisor.vue'
 
 const props = defineProps({
   url: { type: String, required: true },
@@ -76,12 +77,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="visor-pdf flex flex-col h-dvh bg-neutral-800 text-neutral-100">
-    <div class="h-12 shrink-0 flex items-center gap-1 pl-4 pr-2 bg-neutral-950">
-      <div class="flex items-center gap-2 min-w-0 flex-1">
-        <i class="pi pi-file-pdf text-red-400 shrink-0" />
-        <span class="text-sm font-medium truncate">{{ nombre }}</span>
-      </div>
-
+    <BarraVisor :nombre="nombre" icono="pi-file-pdf text-red-400" @descargar="emit('descargar')" @cerrar="emit('cerrar')">
       <div v-if="estado === 'listo'" class="flex items-center gap-1 text-sm text-neutral-300 tabular-nums">
         <span class="px-1">{{ pagina }} / {{ paginas }}</span>
         <span class="hidden sm:block w-px h-5 bg-neutral-700 mx-1" />
@@ -101,23 +97,7 @@ onBeforeUnmount(() => {
           <i class="pi pi-search-plus" />
         </button>
       </div>
-
-      <span class="w-px h-5 bg-neutral-700 mx-1" />
-      <button
-        @click="emit('descargar')"
-        class="w-9 h-9 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer"
-        title="Descargar" aria-label="Descargar"
-      >
-        <i class="pi pi-download" />
-      </button>
-      <button
-        @click="emit('cerrar')"
-        class="w-9 h-9 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer"
-        title="Cerrar" aria-label="Cerrar"
-      >
-        <i class="pi pi-times" />
-      </button>
-    </div>
+    </BarraVisor>
 
     <!-- PDFViewer pide un contenedor con position: absolute -->
     <div class="relative flex-1">
