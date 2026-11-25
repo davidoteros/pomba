@@ -25,6 +25,8 @@ const BASE = `${import.meta.env.BASE_URL}pdfjs/`
 let tarea = null
 let visor = null
 let cerrado = false
+let gestos = null
+const quitarGestos = new AbortController()
 
 onMounted(async () => {
   // Un solo worker para todos los PDF que se abran
@@ -47,6 +49,19 @@ onMounted(async () => {
   eventBus.on('pagechanging', (e) => { pagina.value = e.pageNumber })
   eventBus.on('scalechanging', (e) => { zoom.value = Math.round(e.scale * 100) })
 
+  // Pellizcar amplía el PDF y no la página entera (TouchManager, el del visor oficial de PDF.js)
+  let escala = 1
+  gestos = new pdfjsLib.TouchManager({
+    container: contenedor.value,
+    signal: quitarGestos.signal,
+    onPinchStart: () => { escala = visor.currentScale },
+    onPinching: (origen, antes, ahora, dx, dy) => {
+      escala = Math.min(Math.max(escala * (ahora / antes), 0.25), 10)
+      visor.updateScale({ scaleFactor: escala / visor.currentScale, origin: origen, pan: [dx, dy], drawingDelay: 400 })
+    },
+    onPanning: (dx, dy) => contenedor.value.scrollBy(-dx, -dy),
+  })
+
   tarea = pdfjsLib.getDocument({
     url: props.url,
     cMapUrl: `${BASE}cmaps/`,
@@ -68,15 +83,32 @@ onMounted(async () => {
   }
 })
 
+// Clic en el fondo gris cierra, como en el visor de fotos: pulsar y soltar ahí sin moverse
+// (así no cierra al seleccionar texto ni al arrastrar la barra de scroll)
+let pulsadoEnFondo = null
+const esFondo = (e) => e.target === contenedor.value || e.target === hojas.value
+function alPulsar(e) {
+  const caja = contenedor.value.getBoundingClientRect()
+  const barra = e.clientX - caja.left >= contenedor.value.clientWidth || e.clientY - caja.top >= contenedor.value.clientHeight
+  pulsadoEnFondo = esFondo(e) && !barra ? { x: e.clientX, y: e.clientY } : null
+}
+function alSoltar(e) {
+  const quieto = pulsadoEnFondo && Math.hypot(e.clientX - pulsadoEnFondo.x, e.clientY - pulsadoEnFondo.y) < 6
+  if (quieto && esFondo(e)) emit('cerrar')
+  pulsadoEnFondo = null
+}
+
 onBeforeUnmount(() => {
   cerrado = true
+  gestos?.destroy()
+  quitarGestos.abort()
   visor?.setDocument(null)
   tarea?.destroy()
 })
 </script>
 
 <template>
-  <div class="visor-pdf flex flex-col h-dvh bg-neutral-800 text-neutral-100">
+  <div class="visor-pdf flex flex-col h-dvh bg-neutral-800 text-neutral-100 touch-pan-x touch-pan-y">
     <BarraVisor :nombre="nombre" icono="pi-file-pdf text-red-400" @descargar="emit('descargar')" @cerrar="emit('cerrar')">
       <div v-if="estado === 'listo'" class="flex items-center gap-1 text-sm text-neutral-300 tabular-nums">
         <span class="px-1">{{ pagina }} / {{ paginas }}</span>
@@ -101,7 +133,7 @@ onBeforeUnmount(() => {
 
     <!-- PDFViewer pide un contenedor con position: absolute -->
     <div class="relative flex-1">
-      <div ref="contenedor" class="absolute inset-0 overflow-auto">
+      <div ref="contenedor" class="absolute inset-0 overflow-auto" @pointerdown="alPulsar" @click="alSoltar">
         <div ref="hojas" class="pdfViewer" />
       </div>
       <div v-if="estado === 'cargando'" class="absolute inset-0 flex items-center justify-center text-neutral-400">

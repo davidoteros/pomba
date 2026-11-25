@@ -58,7 +58,8 @@ onBeforeUnmount(quitarTeclas)
 </script>
 
 <template>
-  <div class="flex flex-col h-dvh bg-neutral-900 text-neutral-100 select-none [color-scheme:dark]">
+  <!-- Sin pellizcar: ampliaría la aplicación entera (el zoom de fotos, más adelante) -->
+  <div class="flex flex-col h-dvh bg-neutral-900 text-neutral-100 select-none [color-scheme:dark] touch-pan-x touch-pan-y">
     <BarraVisor :nombre="actual.nombre" :icono="obtenerIcono(actual)" @descargar="emit('descargar', actual)" @cerrar="emit('cerrar')">
       <span v-if="imagenes.length > 1" class="px-1 text-sm text-neutral-300 tabular-nums">
         {{ indice + 1 }} / {{ imagenes.length }}
@@ -67,7 +68,7 @@ onBeforeUnmount(quitarTeclas)
 
     <div class="relative flex-1">
       <div ref="emblaRef" class="absolute inset-0 overflow-hidden">
-        <div class="flex h-full touch-pan-y touch-pinch-zoom">
+        <div class="flex h-full touch-pan-y">
           <div v-for="(item, i) in imagenes" :key="item.id" class="relative flex-[0_0_100%] min-w-0">
             <!-- Clic en el fondo cierra; Embla ya se come el clic que acaba un arrastre -->
             <div v-if="cerca(i)" class="absolute inset-0 flex items-center justify-center p-4" @click.self="emit('cerrar')">
