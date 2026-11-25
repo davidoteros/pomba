@@ -41,7 +41,7 @@ server {
         if ($request_method = 'OPTIONS') {
             add_header 'Access-Control-Allow-Origin'  '$http_origin' always;
             add_header 'Access-Control-Allow-Methods' 'GET, PUT, HEAD, DELETE, OPTIONS' always;
-            add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, x-amz-content-sha256, x-amz-date, x-amz-security-token' always;
+            add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, Range, x-amz-content-sha256, x-amz-date, x-amz-security-token' always;
             add_header 'Access-Control-Max-Age' 3600 always;
             add_header 'Content-Length' 0;
             return 204;
@@ -114,7 +114,7 @@ server {
         # Suma estas cabeceras al HSTS del server en vez de sustituirlo
         add_header_inherit merge;
         # Scripts solo propios; estilos inline por PrimeVue; Garage (:3900) para ver y subir ficheros
-        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://pomba.me:3900; media-src 'self' blob: https://pomba.me:3900; frame-src https://pomba.me:3900; connect-src 'self' https://pomba.me:3900; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://pomba.me:3900; media-src 'self' blob: https://pomba.me:3900; connect-src 'self' https://pomba.me:3900; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
         add_header X-Content-Type-Options "nosniff" always;
         add_header Referrer-Policy "same-origin" always;
 

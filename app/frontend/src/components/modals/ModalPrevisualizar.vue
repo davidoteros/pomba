@@ -1,23 +1,31 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, defineAsyncComponent } from 'vue'
 import { useGestorItems } from '@/stores/items'
 import Dialog from 'primevue/dialog'
+
+const VisorPdf = defineAsyncComponent(() => import('@/components/VisorPdf.vue'))
 
 const gestor = useGestorItems()
 
 const tipoPreview = computed(() => gestor.modal.payload?.item?.tipo_visor || null)
+
+// El PDF ocupa toda la pantalla; el resto, una ventana centrada
+const estiloVentana = computed(() => {
+  if (tipoPreview.value === 'pdf') return { width: '100vw', height: '100dvh', maxHeight: '100dvh', margin: 0 }
+  return tipoPreview.value === 'audio' ? { width: '26rem' } : { width: '92vw', maxWidth: '1200px' }
+})
 </script>
 
 <template>
   <Dialog
     v-if="gestor.modal.name === 'previsualizar'"
     v-model:visible="gestor.modal.open"
-    :style="tipoPreview === 'audio' ? { width: '26rem' } : { width: '92vw', maxWidth: '1200px' }"
-    :breakpoints="{ '640px': '96vw' }"
+    :style="estiloVentana"
+    :breakpoints="tipoPreview === 'pdf' ? {} : { '640px': '96vw' }"
     modal :draggable="false" :closable="false"
     @hide="gestor.cerrarModal"
     :pt="{
-      root:    { class: 'overflow-hidden !rounded-2xl shadow-2xl' },
+      root:    { class: tipoPreview === 'pdf' ? 'overflow-hidden !rounded-none !border-0' : 'overflow-hidden !rounded-2xl shadow-2xl' },
       header:  { class: '!hidden' },
       content: { style: 'padding:0; overflow:hidden' },
     }"
@@ -102,32 +110,12 @@ const tipoPreview = computed(() => gestor.modal.payload?.item?.tipo_visor || nul
     </div>
 
     <!-- PDF -->
-    <div v-else-if="tipoPreview === 'pdf'" class="flex flex-col">
-      <div class="flex items-center justify-between px-4 py-3
-                  bg-surface-100 dark:bg-surface-800
-                  border-b border-surface-200 dark:border-surface-700">
-        <div class="flex items-center gap-2 min-w-0">
-          <i class="pi pi-file-pdf text-red-400 shrink-0" />
-          <span class="text-surface-700 dark:text-surface-200 text-sm font-medium truncate">
-            {{ gestor.modal.payload?.item?.nombre }}
-          </span>
-        </div>
-        <button
-          @click="gestor.cerrarModal"
-          class="w-7 h-7 shrink-0 rounded-full bg-surface-200 dark:bg-surface-700
-                hover:bg-surface-300 dark:hover:bg-surface-600
-                flex items-center justify-center text-surface-500 dark:text-surface-400
-                transition-colors cursor-pointer ml-2"
-          aria-label="Cerrar"
-        >
-          <i class="pi pi-times text-xs" />
-        </button>
-      </div>
-      <iframe
-        :src="gestor.modal.payload?.url"
-        class="w-full block border-0"
-        style="height: 87vh"
-      />
-    </div>
+    <VisorPdf
+      v-else-if="tipoPreview === 'pdf'"
+      :url="gestor.modal.payload?.url"
+      :nombre="gestor.modal.payload?.item?.nombre"
+      @cerrar="gestor.cerrarModal"
+      @descargar="gestor.descargarArchivo(gestor.modal.payload.item)"
+    />
   </Dialog>
 </template>

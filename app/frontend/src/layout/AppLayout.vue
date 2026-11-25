@@ -305,7 +305,8 @@ function clasesSnackbar(notif) {
 
   <!-- SNACKBARS -->
   <!-- Abajo a la derecha para no tapar la barra de espacio; en móvil a la izquierda, porque ahí está el botón + -->
-  <div class="fixed bottom-20 left-3 z-50 flex flex-col-reverse gap-2 sm:bottom-6 sm:left-auto sm:right-6 sm:items-end">
+  <!-- Por encima de las ventanas de PrimeVue (1100), como su Toast, para que se vean sobre el visor de PDF -->
+  <div class="fixed bottom-20 left-3 z-[1200] flex flex-col-reverse gap-2 sm:bottom-6 sm:left-auto sm:right-6 sm:items-end">
     <TransitionGroup name="snack">
       <div
         v-for="notif in gestor.notificaciones"

@@ -757,26 +757,31 @@ export const useGestorItems = defineStore('items', {
 
     // === DESCARGAR ==============================================================
 
+    // Un fichero suelto: lo usan la selección y el visor de PDF
+    async descargarArchivo(item) {
+      try {
+        const { url } = await apiItems.descargarArchivo(item.id)
+        const a = document.createElement('a')
+        a.href = url
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+      } catch (error) {
+        this.agregarNotificacion({
+          id: 'descargar-error',
+          tipo: 'error',
+          mensaje: mensajeDeAccion(error, 'No se pudo descargar el archivo'),
+          icono: 'pi-download',
+        })
+      }
+    },
+
     async descargarItems() {
       const seleccion = this.itemsSeleccionados
       if (!seleccion.length) return
 
       if (seleccion.length === 1 && seleccion[0].tipo === 'archivo') {
-        try {
-          const { url } = await apiItems.descargarArchivo(seleccion[0].id)
-          const a = document.createElement('a')
-          a.href = url
-          document.body.appendChild(a)
-          a.click()
-          document.body.removeChild(a)
-        } catch (error) {
-          this.agregarNotificacion({
-            id: 'descargar-error',
-            tipo: 'error',
-            mensaje: mensajeDeAccion(error, 'No se pudo descargar el archivo'),
-            icono: 'pi-download',
-          })
-        }
+        await this.descargarArchivo(seleccion[0])
         return
       }
 
