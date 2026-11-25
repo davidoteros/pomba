@@ -75,11 +75,12 @@ const opcionesMenu = ref([
     icon: 'pi pi-cog',
     command: () => { mostrarAjustes.value = true },
   },
-  {
+  // Swagger solo existe en desarrollo (EXPONER_API_SCHEMA); en producción y en la demo no hay nada que abrir
+  ...(import.meta.env.DEV ? [{
     label: 'API',
     icon: 'pi pi-code',
     command: () => { window.open('/api/schema/swagger/', '_blank') },
-  },
+  }] : []),
   { separator: true },
   {
     label: 'Cerrar sesión',
