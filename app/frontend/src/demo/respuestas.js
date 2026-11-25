@@ -32,12 +32,19 @@ function hijos(id) {
   return [...estado.items.values()].filter((i) => i.padre === id)
 }
 
+// Lo subido en la demo usa su propio blob como miniatura; los ejemplos traen la suya
+function urlMiniatura(item) {
+  if (item.miniatura) return item.miniatura
+  return item.tipo === 'archivo' && item.mime_type?.startsWith('image/') ? item.url : null
+}
+
 function serializar(item) {
-  const { url, ...resto } = item
+  const { url, miniatura, ...resto } = item
   const visor = item.tipo === 'archivo' ? tipoVisor(item.mime_type) : null
   return {
     ...resto,
     file: url,
+    tiene_miniatura: urlMiniatura(item) !== null,
     previsualizable: visor !== null,
     tipo_visor: visor,
     tiene_hijos: hijos(item.id).some((h) => h.eliminado === item.eliminado),
@@ -248,7 +255,7 @@ export const respuestas = [
       const copia = original.tipo === 'carpeta'
         ? crearCarpeta(nombre, padre)
         : crearArchivo({
-          nombre, padre, url: original.url, mime_type: original.mime_type,
+          nombre, padre, url: original.url, miniatura: original.miniatura, mime_type: original.mime_type,
           tamano_bytes: original.tamano_bytes, metadatos: structuredClone(original.metadatos),
         })
       copias.set(original.id, copia)
@@ -312,6 +319,13 @@ export const respuestas = [
     const item = activo(params.id)
     if (!item) return noEncontrado()
     return HttpResponse.json({ url: item.url })
+  }),
+  // Django redirige a un enlace firmado; aquí se devuelve la imagen tal cual (un blob no admite redirección)
+  http.get(`${API}/items/:id/miniatura/`, async ({ params }) => {
+    const item = activo(params.id)
+    const url = item && urlMiniatura(item)
+    if (!url) return noEncontrado()
+    return new HttpResponse(await (await fetch(url)).blob())
   }),
   http.get(`${API}/items/:id/descargar_archivo/`, noDisponible),
   http.post(`${API}/items/descargar/`, noDisponible),
