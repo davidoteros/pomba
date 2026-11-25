@@ -8,7 +8,7 @@ from rest_framework.exceptions import NotFound, ValidationError as DRFValidation
 from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 from django.db.models import Exists, OuterRef
-from django.http import StreamingHttpResponse
+from django.http import HttpResponseRedirect, StreamingHttpResponse
 from django.db import transaction
 from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
@@ -379,6 +379,18 @@ class ItemViewSet(ListModelMixin, CreateModelMixin, GenericViewSet):
             {'detail': 'Tipo de archivo no previsualizable.'},
             status=status.HTTP_400_BAD_REQUEST,
         )
+
+    # La tabla pone <img src=".../miniatura/">: la cookie de sesión identifica y cada vez se firma un enlace nuevo
+    @extend_schema(responses={302: None, 404: inline_serializer('MiniaturaNoDisponible', fields={'detail': drf_serializers.CharField()})})
+    @action(detail=True, methods=['get'])
+    def miniatura(self, request, pk=None):
+        item = self.get_object()
+        if not item.miniatura_key or item.miniatura_key == PREVIEW_FALLIDA:
+            raise NotFound('Este archivo no tiene miniatura.')
+        respuesta = HttpResponseRedirect(ItemService.generar_url_miniatura(item))
+        # El navegador reutiliza la redirección mientras el enlace firmado siga valiendo
+        respuesta['Cache-Control'] = 'private, max-age=240'
+        return respuesta
 
     @extend_schema(
         request=IdsSerializer,

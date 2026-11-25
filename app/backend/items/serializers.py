@@ -33,6 +33,8 @@ class ItemSerializer(serializers.ModelSerializer):
     tipo_visor = serializers.SerializerMethodField()
     # Si el panel enseña la pestaña Versiones (lo decide el servidor, no Vue)
     admite_versiones = serializers.SerializerMethodField()
+    # Si la tabla puede pedir /miniatura/ en vez de enseñar el icono
+    tiene_miniatura = serializers.SerializerMethodField()
 
     class Meta:
         model = Item
@@ -48,6 +50,7 @@ class ItemSerializer(serializers.ModelSerializer):
             "previsualizable",
             "tipo_visor",
             "admite_versiones",
+            "tiene_miniatura",
             "metadatos",
             "favorito",
             "eliminado",
@@ -88,6 +91,10 @@ class ItemSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.BooleanField())
     def get_admite_versiones(self, obj):
         return admite_versiones(obj)
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_tiene_miniatura(self, obj):
+        return bool(obj.miniatura_key) and obj.miniatura_key != PREVIEW_FALLIDA
 
 
 

@@ -149,4 +149,9 @@ export const apiItems = {
     const { data } = await api.get(`items/${itemId}/versiones/${numero}/previsualizar/`)
     return data
   },
+
+  // Va en el src de un <img>: el servidor redirige a la miniatura con un enlace firmado
+  urlMiniatura(itemId) {
+    return `${api.defaults.baseURL}items/${itemId}/miniatura/`
+  },
 }

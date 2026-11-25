@@ -50,6 +50,9 @@ class Item(models.Model):
     # Key en Garage de un PNG generado por el servidor para previsualizar tipos que no son seguros de servir tal cual (SVG).
     preview_key = models.CharField(max_length=500, blank=True, default='')
 
+    # Key en Garage de la miniatura WebP que enseña la tabla en vez del icono.
+    miniatura_key = models.CharField(max_length=500, blank=True, default='')
+
     # --- METADATOS ---
     metadatos = models.JSONField(default=dict, blank=True)
 
@@ -79,6 +82,7 @@ class Item(models.Model):
             self.tamano_bytes = None
             self.mime_type = None
             self.preview_key = ''
+            self.miniatura_key = ''
 
         super().save(*args, **kwargs)
 

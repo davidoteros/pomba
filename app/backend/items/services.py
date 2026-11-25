@@ -10,6 +10,7 @@ import cairosvg
 from botocore.client import Config
 from botocore.exceptions import ClientError
 from elasticsearch import Elasticsearch
+from PIL import Image, ImageOps
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -80,6 +81,16 @@ MIME_CON_PREVIEW_GENERADA = frozenset({'image/svg+xml'})
 LIMITE_SVG_PREVIEW_BYTES = 2 * 1024 * 1024  # 2 MB
 ANCHO_PREVIEW_PNG = 1200
 PREVIEW_FALLIDA = '/fallida'
+
+# Miniaturas de la tabla: imágenes que Pillow sabe leer (el SVG sale de su PNG generado)
+MIME_CON_MINIATURA = frozenset({
+    'image/png', 'image/jpeg', 'image/gif', 'image/webp',
+    'image/avif', 'image/bmp', 'image/x-ms-bmp', 'image/tiff',
+    'image/svg+xml',
+})
+LADO_MINIATURA = 112  # px: se ve a 28 px y así queda nítida en pantallas Retina
+LIMITE_MINIATURA_BYTES = 60 * 1024 * 1024  # 60 MB, como al indexar
+LIMITE_MINIATURA_PIXELES = 100_000_000  # 100 Mpx: más que eso no se abre 
 
 
 def mime_previsualizable(mime_type):
@@ -184,7 +195,7 @@ class ItemService:
     @staticmethod
     def get_s3_keys_for_items(items_qs):
         """
-        Extrae las keys de S3 de los items tipo archivo, incluidos los PNG de previsualización generados por el servidor.
+        Extrae las keys de S3 de los items tipo archivo, incluidos los PNG de previsualización y las miniaturas que genera el servidor.
         """
         keys = list(
             items_qs.exclude(file="").exclude(file__isnull=True).values_list("file", flat=True)
@@ -193,6 +204,11 @@ class ItemService:
             items_qs.exclude(preview_key="")
             .exclude(preview_key=PREVIEW_FALLIDA)
             .values_list("preview_key", flat=True)
+        )
+        keys += list(
+            items_qs.exclude(miniatura_key="")
+            .exclude(miniatura_key=PREVIEW_FALLIDA)
+            .values_list("miniatura_key", flat=True)
         )
         return keys
 
@@ -581,9 +597,10 @@ class ItemService:
 
     @staticmethod
     def procesar_copias(copias):
-        """Vista previa de los SVG copiados; el índice de búsqueda ya se actualiza solo al guardar."""
+        """Vista previa de los SVG y miniaturas de las copias; el índice de búsqueda ya se actualiza solo al guardar."""
         for copia in copias:
             ItemService.generar_preview_png(copia)
+            ItemService.generar_miniatura(copia)
     
     @staticmethod
     def _nombre_disponible(usuario, nombre, padre):
@@ -863,11 +880,15 @@ class ItemService:
 
     @staticmethod
     def claves_registradas():
-        """Keys de Garage que la BD dice que existen: items, previews, versiones y fotos de perfil."""
+        """Keys de Garage que la BD dice que existen: items, previews, miniaturas, versiones y fotos de perfil."""
         claves = set(Item.objects.exclude(file='').exclude(file__isnull=True).values_list('file', flat=True))
         claves |= set(
             Item.objects.exclude(preview_key='').exclude(preview_key=PREVIEW_FALLIDA)
             .values_list('preview_key', flat=True)
+        )
+        claves |= set(
+            Item.objects.exclude(miniatura_key='').exclude(miniatura_key=PREVIEW_FALLIDA)
+            .values_list('miniatura_key', flat=True)
         )
         claves |= set(ItemVersion.objects.values_list('file', flat=True))
         claves |= set(
@@ -971,9 +992,10 @@ class ItemService:
 
     @staticmethod
     def procesar_item_subido(item):
-        """Trabajo posterior a la subida: indexar y vista previa."""
+        """Trabajo posterior a la subida: indexar, vista previa y miniatura."""
         ItemService.indexar_item(item)
         ItemService.generar_preview_png(item)
+        ItemService.generar_miniatura(item)
 
     @staticmethod
     def generar_preview_png(item):
@@ -1012,6 +1034,68 @@ class ItemService:
         except Exception as e:
             logger.warning("No se pudo generar preview de item %s: %r", item.id, e)
             ItemService._marcar_preview_fallida(item)
+
+    @staticmethod
+    def generar_miniatura(item):
+        """
+        Crea la miniatura cuadrada WebP que enseña la tabla y guarda su key en item.miniatura_key.
+        El SVG se hace desde su PNG generado: nunca se abre el SVG con Pillow.
+        """
+        if item.tipo != Item.Tipo.ARCHIVO or not item.file:
+            return
+        mime = (item.mime_type or '').split(';')[0].strip().lower()
+        if mime not in MIME_CON_MINIATURA:
+            return
+        if mime_con_preview_generada(mime):
+            if not item.preview_key or item.preview_key == PREVIEW_FALLIDA:
+                ItemService._marcar_miniatura_fallida(item)
+                return
+            origen = item.preview_key
+        elif (item.tamano_bytes or 0) > LIMITE_MINIATURA_BYTES:
+            logger.info("Imagen demasiado grande para la miniatura: item %s", item.id)
+            ItemService._marcar_miniatura_fallida(item)
+            return
+        else:
+            origen = str(item.file)
+
+        try:
+            s3 = ItemService.get_s3_client()
+            datos = s3.get_object(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=origen)['Body'].read()
+
+            with Image.open(io.BytesIO(datos)) as imagen:
+                if imagen.width * imagen.height > LIMITE_MINIATURA_PIXELES:
+                    raise ValueError(f"{imagen.width}x{imagen.height} px")
+                # En JPEG decodifica ya reducida: mucho más rápido con fotos grandes
+                imagen.draft('RGB', (LADO_MINIATURA * 2, LADO_MINIATURA * 2))
+                imagen = ImageOps.exif_transpose(imagen)
+                con_alfa = imagen.mode in ('RGBA', 'LA', 'PA') or 'transparency' in imagen.info
+                imagen = imagen.convert('RGBA' if con_alfa else 'RGB')
+                miniatura = ImageOps.fit(imagen, (LADO_MINIATURA, LADO_MINIATURA), Image.Resampling.LANCZOS)
+
+            salida = io.BytesIO()
+            miniatura.save(salida, 'WEBP', quality=80, method=6)
+
+            key = f"users/{item.usuario_id}/m/{uuid.uuid4().hex}.webp"
+            s3.put_object(
+                Bucket=settings.AWS_STORAGE_BUCKET_NAME,
+                Key=key,
+                Body=salida.getvalue(),
+                ContentType='image/webp',
+            )
+            anterior = item.miniatura_key
+            Item.objects.filter(pk=item.pk).update(miniatura_key=key)
+            item.miniatura_key = key
+            if anterior and anterior != PREVIEW_FALLIDA:
+                ItemService._borrar_objeto(anterior)
+        except Exception as e:
+            logger.warning("No se pudo generar la miniatura de item %s: %r", item.id, e)
+            ItemService._marcar_miniatura_fallida(item)
+
+    @staticmethod
+    def _marcar_miniatura_fallida(item):
+        """Sin miniatura para siempre: la tabla deja el icono y no la vuelve a pedir."""
+        Item.objects.filter(pk=item.pk).update(miniatura_key=PREVIEW_FALLIDA)
+        item.miniatura_key = PREVIEW_FALLIDA
 
     @staticmethod
     def _marcar_preview_fallida(item):
@@ -1088,6 +1172,34 @@ class ItemService:
         return client.generate_presigned_url(
             "get_object",
             Params=params,
+            ExpiresIn=300,
+        )
+
+    @staticmethod
+    def generar_url_miniatura(item):
+        """Presigned URL de la miniatura WebP; siempre image/webp e inline."""
+        if not item.miniatura_key or item.miniatura_key == PREVIEW_FALLIDA:
+            raise DjangoValidationError({'detail': 'Este archivo no tiene miniatura.'})
+
+        public_endpoint = getattr(settings, "GARAGE_PUBLIC_URL", settings.AWS_S3_ENDPOINT_URL)
+
+        client = boto3.client(
+            "s3",
+            endpoint_url=public_endpoint,
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            region_name=settings.AWS_S3_REGION_NAME,
+            config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+        )
+
+        return client.generate_presigned_url(
+            "get_object",
+            Params={
+                "Bucket": settings.AWS_STORAGE_BUCKET_NAME,
+                "Key": item.miniatura_key,
+                "ResponseContentDisposition": content_disposition_header(False, f"{item.nombre}.webp"),
+                "ResponseContentType": "image/webp",
+            },
             ExpiresIn=300,
         )
 

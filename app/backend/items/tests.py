@@ -1,3 +1,4 @@
+import io
 import threading
 import time
 from datetime import timedelta
@@ -922,3 +923,129 @@ class CopiarTests(TestCase):
         self.assertEqual(respuesta.status_code, 400)
         self.assertIn('1000', respuesta.json()['errors'][0]['detail'])
         s3_cliente.return_value.copy_object.assert_not_called()
+
+
+def jpeg_girado():
+    """JPEG de 200x100 (izquierda roja, derecha azul) con EXIF 'girar 90°': de pie mide 100x200 con el rojo arriba."""
+    from PIL import Image
+    imagen = Image.new('RGB', (200, 100), (0, 0, 255))
+    imagen.paste((255, 0, 0), (0, 0, 100, 100))
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    salida = io.BytesIO()
+    imagen.save(salida, 'JPEG', exif=exif, quality=95)
+    return salida.getvalue()
+
+
+@mock.patch.object(registry, 'delete_related')
+@mock.patch.object(registry, 'update_related')
+@mock.patch.object(registry, 'update')
+@mock.patch.object(registry, 'delete')
+@mock.patch('items.services.ItemService.get_s3_client')
+class MiniaturaTests(TestCase):
+    """La tabla enseña una miniatura WebP de las imágenes en vez del icono."""
+
+    def setUp(self):
+        self.usuario = Usuario.objects.create_user(email='miniatura@prueba.com', password='Prueba1234!')
+        self.cliente = APIClient()
+        self.cliente.force_authenticate(self.usuario)
+
+    def imagen(self, nombre='foto.jpg', mime='image/jpeg', **extra):
+        return Item.objects.create(
+            usuario=self.usuario, nombre=nombre, tipo=Item.Tipo.ARCHIVO,
+            file=f'files/{nombre}', mime_type=mime, **{'tamano_bytes': 1000, **extra},
+        )
+
+    def guardada(self, s3):
+        from PIL import Image
+        llamada = s3.return_value.put_object.call_args.kwargs
+        return llamada, Image.open(io.BytesIO(llamada['Body']))
+
+    def test_hace_una_webp_cuadrada_y_de_pie(self, s3, *_):
+        s3.return_value.get_object.return_value = {'Body': io.BytesIO(jpeg_girado())}
+        item = self.imagen()
+        ItemService.generar_miniatura(item)
+        llamada, webp = self.guardada(s3)
+        self.assertEqual(llamada['ContentType'], 'image/webp')
+        self.assertTrue(llamada['Key'].startswith(f'users/{self.usuario.id}/m/'))
+        self.assertEqual((webp.format, webp.size), ('WEBP', (112, 112)))
+        rojo, azul = webp.convert('RGB').getpixel((56, 5)), webp.convert('RGB').getpixel((56, 106))
+        self.assertGreater(rojo[0], 200)
+        self.assertGreater(azul[2], 200)
+        item.refresh_from_db()
+        self.assertEqual(item.miniatura_key, llamada['Key'])
+
+    def test_una_imagen_rota_se_queda_con_el_icono(self, s3, *_):
+        s3.return_value.get_object.return_value = {'Body': io.BytesIO(b'esto no es un jpeg')}
+        item = self.imagen()
+        with self.assertLogs('items.services', level='WARNING'):
+            ItemService.generar_miniatura(item)
+        s3.return_value.put_object.assert_not_called()
+        item.refresh_from_db()
+        self.assertEqual(item.miniatura_key, '/fallida')
+
+    def test_demasiado_grande_no_se_descarga(self, s3, *_):
+        item = self.imagen(tamano_bytes=61 * 1024 * 1024)
+        ItemService.generar_miniatura(item)
+        s3.return_value.get_object.assert_not_called()
+        self.assertEqual(item.miniatura_key, '/fallida')
+
+    def test_el_svg_sale_de_su_png_y_nunca_del_svg(self, s3, *_):
+        from PIL import Image
+        png = io.BytesIO()
+        Image.new('RGBA', (300, 200), (0, 128, 0, 255)).save(png, 'PNG')
+        s3.return_value.get_object.return_value = {'Body': io.BytesIO(png.getvalue())}
+        item = self.imagen('dibujo.svg', mime='image/svg+xml', preview_key='users/1/p/x.png')
+        ItemService.generar_miniatura(item)
+        self.assertEqual(s3.return_value.get_object.call_args.kwargs['Key'], 'users/1/p/x.png')
+        self.assertNotEqual(item.miniatura_key, '/fallida')
+
+    def test_otros_tipos_no_tienen_miniatura(self, s3, *_):
+        for nombre, mime in [('a.pdf', 'application/pdf'), ('b.mp3', 'audio/mpeg'), ('c.svg', 'image/svg+xml')]:
+            item = self.imagen(nombre, mime=mime)
+            ItemService.generar_miniatura(item)
+        s3.return_value.get_object.assert_not_called()
+        s3.return_value.put_object.assert_not_called()
+
+    def test_al_rehacerla_se_borra_la_anterior(self, s3, *_):
+        s3.return_value.get_object.return_value = {'Body': io.BytesIO(jpeg_girado())}
+        item = self.imagen(miniatura_key='users/1/m/vieja.webp')
+        ItemService.generar_miniatura(item)
+        s3.return_value.delete_object.assert_called_once_with(Bucket=mock.ANY, Key='users/1/m/vieja.webp')
+
+    def test_el_endpoint_redirige_al_enlace_firmado(self, *_):
+        item = self.imagen(miniatura_key='users/1/m/a.webp')
+        respuesta = self.cliente.get(f'/api/items/{item.id}/miniatura/')
+        self.assertEqual(respuesta.status_code, 302)
+        destino = urlsplit(respuesta['Location'])
+        self.assertTrue(destino.path.endswith('/users/1/m/a.webp'))
+        self.assertEqual(parse_qs(destino.query)['response-content-type'], ['image/webp'])
+        self.assertIn('private', respuesta['Cache-Control'])
+
+    def test_sin_miniatura_o_ajena_da_404(self, *_):
+        sin = self.imagen('sin.jpg')
+        fallida = self.imagen('fallida.jpg', miniatura_key='/fallida')
+        otro = Usuario.objects.create_user(email='otro-mini@prueba.com', password='Prueba1234!')
+        ajena = Item.objects.create(
+            usuario=otro, nombre='x.jpg', tipo=Item.Tipo.ARCHIVO, file='files/x.jpg',
+            mime_type='image/jpeg', miniatura_key='users/9/m/x.webp',
+        )
+        for item in (sin, fallida, ajena):
+            with self.subTest(item=item.nombre):
+                self.assertEqual(self.cliente.get(f'/api/items/{item.id}/miniatura/').status_code, 404)
+
+    def test_el_listado_dice_si_hay_miniatura(self, *_):
+        self.imagen('con.jpg', miniatura_key='users/1/m/a.webp')
+        self.imagen('sin.jpg')
+        self.imagen('fallida.jpg', miniatura_key='/fallida')
+        filas = self.cliente.get('/api/items/').json()['items']
+        self.assertEqual({f['nombre']: f['tiene_miniatura'] for f in filas}, {'con.jpg': True, 'sin.jpg': False, 'fallida.jpg': False})
+
+    def test_la_miniatura_se_borra_con_la_foto_y_no_es_huerfana(self, *_):
+        self.imagen(miniatura_key='users/1/m/a.webp')
+        self.imagen('rota.jpg', miniatura_key='/fallida')
+        claves = ItemService.get_s3_keys_for_items(Item.objects.filter(usuario=self.usuario))
+        self.assertIn('users/1/m/a.webp', claves)
+        self.assertNotIn('/fallida', claves)
+        self.assertIn('users/1/m/a.webp', ItemService.claves_registradas())
+        self.assertNotIn('/fallida', ItemService.claves_registradas())

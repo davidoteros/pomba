@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, reactive, computed, onUnmounted } from 'vue'
 import { tinykeys } from 'tinykeys'
 import { useRoute, useRouter } from 'vue-router'
 import { useGestorItems } from '@/stores/items'
@@ -7,8 +7,13 @@ import { useConfirmacion } from '@/composables/useConfirmacion'
 import { formatDate } from '../utils/date'
 import { formatBytes } from '../utils/bytes'
 import { obtenerIcono } from '../utils/iconos'
+import { apiItems } from '@/api/items'
 
 const gestor = useGestorItems()
+
+// Miniatura en vez del icono; si no carga, vuelve el icono
+const miniaturasRotas = reactive(new Set())
+const conMiniatura = (item) => item.tiene_miniatura && !item.eliminado && !miniaturasRotas.has(item.id)
 const { confirmar } = useConfirmacion()
 //Por defecto
 const sortCampo = ref('fecha_modificacion')
@@ -571,12 +576,19 @@ const emptyState = computed(() => {
           <!-- Nombre -->
           <td class="px-4 py-3 max-w-0">
             <div class="flex items-center gap-2 min-w-0">
-              <i
-                :class="[
-                  'pi text-base shrink-0',
-                  obtenerIcono(item),
-                ]"
-              />
+              <span class="w-7 h-5 shrink-0 flex items-center justify-center">
+                <img
+                  v-if="conMiniatura(item)"
+                  :src="apiItems.urlMiniatura(item.id)"
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  draggable="false"
+                  class="size-7 max-w-none rounded-md object-cover ring-1 ring-black/10 dark:ring-white/10"
+                  @error="miniaturasRotas.add(item.id)"
+                />
+                <i v-else :class="['pi text-base', obtenerIcono(item)]" />
+              </span>
               <span class="truncate text-sm">{{ item.nombre }}</span>
               <i v-if="item.favorito" class="pi pi-star-fill text-yellow-400 text-xs shrink-0" />
             </div>
