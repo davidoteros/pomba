@@ -1,8 +1,5 @@
 // Estado en memoria de la demo: la cuenta de ejemplo y lo que el visitante va cambiando
-import urlLogin from './ficheros/login.png?url'
-import urlExplorador from './ficheros/explorador.png?url'
 import urlBienvenida from './ficheros/bienvenida.pdf?url'
-import urlNotas from './ficheros/notas.txt?url'
 import urlAjito from './ficheros/ajito.jpg?url'
 import urlMinimal from './ficheros/minimal-tech-house.mp3?url'
 import urlMarga from './ficheros/marga.mp3?url'
@@ -84,7 +81,6 @@ export function reiniciar() {
     foto_perfil_url: urlAjito, tema: temaGuardado(),
   }
 
-  const fotos = crearCarpeta('Fotos', null, haceDias(20))
   const musica = crearCarpeta('Música', null, haceDias(15))
   const documentos = crearCarpeta('Documentos', null, haceDias(10))
   const misFotos = crearCarpeta('Mis fotos', null, haceDias(18))
@@ -94,11 +90,9 @@ export function reiniciar() {
     mime_type: 'image/jpeg', tamano_bytes: bytes, fecha: haceDias(18 - i), metadatos: { ancho, alto },
   }))
 
-  crearArchivo({ nombre: 'Explorador.png', padre: fotos.id, url: urlExplorador, miniatura: miniatura('explorador'), mime_type: 'image/png', tamano_bytes: 107415, favorito: true, fecha: haceDias(9), metadatos: { ancho: 1600, alto: 900 } })
-  crearArchivo({ nombre: 'Login.png', padre: fotos.id, url: urlLogin, miniatura: miniatura('login'), mime_type: 'image/png', tamano_bytes: 70461, fecha: haceDias(8), metadatos: { ancho: 1600, alto: 900 } })
-  crearArchivo({ nombre: 'Bienvenida a Pomba.pdf', padre: documentos.id, url: urlBienvenida, mime_type: 'application/pdf', tamano_bytes: 14342, favorito: true, fecha: haceDias(3) })
-  crearArchivo({ nombre: 'Notas.txt', padre: documentos.id, url: urlNotas, mime_type: 'text/plain', tamano_bytes: 81, fecha: haceDias(2) })
-  crearArchivo({ nombre: 'Borrador viejo.txt', url: urlNotas, mime_type: 'text/plain', tamano_bytes: 81, eliminado: true, fecha: haceDias(30) })
+  crearArchivo({ nombre: 'Bienvenida a Pomba.pdf', padre: documentos.id, url: urlBienvenida, mime_type: 'application/pdf', tamano_bytes: 61675, favorito: true, fecha: haceDias(3) })
+  // En la papelera, una foto repetida
+  crearArchivo({ nombre: '049321 (1).JPG', padre: misFotos.id, url: urlsMisFotos['./ficheros/mis-fotos/049321.jpg'], miniatura: miniatura('049321'), mime_type: 'image/jpeg', tamano_bytes: 156806, eliminado: true, fecha: haceDias(4), metadatos: { ancho: 1600, alto: 1080 } })
 
   crearArchivo({ nombre: 'Minimal Tech House.mp3', padre: musica.id, url: urlMinimal, mime_type: 'audio/mpeg', tamano_bytes: 4727117, fecha: haceDias(5), metadatos: { duracion_segundos: 295 } })
   const lembranzas = crearCarpeta('Lembranzas', musica.id, haceDias(14))
