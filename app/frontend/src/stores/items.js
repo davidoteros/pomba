@@ -128,6 +128,12 @@ export const useGestorItems = defineStore('items', {
         this.abrirModal('previsualizar', inicio === -1 ? { item, imagenes: [item], inicio: 0 } : { item, imagenes, inicio })
         return
       }
+      if (item.tipo_visor === 'video') {
+        const videos = lista.filter((i) => i.tipo_visor === 'video' && i.previsualizable)
+        const inicio = videos.indexOf(item)
+        this.abrirModal('previsualizar', inicio === -1 ? { item, videos: [item], inicio: 0 } : { item, videos, inicio })
+        return
+      }
       if (item.tipo_visor === 'audio') {
         const audios = lista.filter((i) => i.tipo_visor === 'audio' && i.previsualizable)
         const inicio = audios.indexOf(item)

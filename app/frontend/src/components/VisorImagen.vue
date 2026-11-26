@@ -1,10 +1,9 @@
 <script setup>
 // Imágenes a pantalla completa: se pasa de una a otra con las flechas, ← → o deslizando (Embla)
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { onBeforeUnmount, watch } from 'vue'
 import emblaCarouselVue from 'embla-carousel-vue'
 import { tinykeys } from 'tinykeys'
-import { apiItems } from '@/api/items'
-import { mensajeDeAccion } from '@/utils/errors'
+import { useCerrarEnFondo, useEnlacesFirmados, useFocoAlAbrir, useListaVisor } from '@/composables/useVisor'
 import { obtenerIcono } from '@/utils/iconos'
 import BarraVisor from '@/components/BarraVisor.vue'
 
@@ -14,27 +13,16 @@ const props = defineProps({
 })
 const emit = defineEmits(['cerrar', 'descargar'])
 
-const indice = ref(props.inicio)
-const actual = computed(() => props.imagenes[indice.value])
-const hayAnterior = computed(() => indice.value > 0)
-const haySiguiente = computed(() => indice.value < props.imagenes.length - 1)
+// Quien mueve el índice es el carrusel; anterior / siguiente van por él
+const { indice, actual, hayAnterior, haySiguiente, contador } = useListaVisor(() => props.imagenes, props.inicio)
+const raiz = useFocoAlAbrir()
 
 // Al final se para (como Drive y Google Fotos)
 const [emblaRef, emblaApi] = emblaCarouselVue({ startIndex: props.inicio, duration: 22 })
 watch(emblaApi, (api) => api?.on('select', () => { indice.value = api.selectedScrollSnap() }))
 
-// id → { url, error, cargada, reintentada }; cada URL firmada se pide al llegar a su imagen
-const fotos = reactive({})
-
-async function pedir(item, reintentada = false) {
-  if (!item || (fotos[item.id] && !reintentada)) return
-  fotos[item.id] = { url: null, error: null, cargada: false, reintentada }
-  try {
-    fotos[item.id].url = (await apiItems.previsualizar(item.id)).url
-  } catch (e) {
-    fotos[item.id].error = mensajeDeAccion(e, 'No se pudo abrir la imagen.')
-  }
-}
+// Además de url y error, cada foto guarda si ya se ha pintado (cargada)
+const { enlaces: fotos, pedir, reintentar } = useEnlacesFirmados('No se pudo abrir la imagen.')
 
 // Como Nextcloud: primero la que se ve y después sus vecinas
 watch(indice, async (i) => {
@@ -44,10 +32,12 @@ watch(indice, async (i) => {
 }, { immediate: true })
 
 // La URL firmada caduca a los 5 min: si falla, se pide otra una vez
-function alFallar(item) {
-  if (fotos[item.id].reintentada) fotos[item.id].error = 'No se pudo abrir la imagen.'
-  else pedir(item, true)
+async function alFallar(item) {
+  if (!(await reintentar(item))) fotos[item.id].error = 'No se pudo abrir la imagen.'
 }
+
+// Clic en el fondo de la diapositiva cierra; si arrastras para pasar de foto, no
+const { alPulsar, alSoltar } = useCerrarEnFondo((e) => e.target === e.currentTarget, () => emit('cerrar'))
 
 const cerca = (i) => Math.abs(i - indice.value) <= 1
 const anterior = () => emblaApi.value?.scrollPrev()
@@ -59,19 +49,16 @@ onBeforeUnmount(quitarTeclas)
 
 <template>
   <!-- Sin pellizcar: ampliaría la aplicación entera (el zoom de fotos, más adelante) -->
-  <div class="flex flex-col h-dvh bg-neutral-900 text-neutral-100 select-none [color-scheme:dark] touch-pan-x touch-pan-y">
+  <div ref="raiz" tabindex="-1" class="flex flex-col h-dvh bg-neutral-900 text-neutral-100 select-none outline-none [color-scheme:dark] touch-pan-x touch-pan-y">
     <BarraVisor :nombre="actual.nombre" :icono="obtenerIcono(actual)" @descargar="emit('descargar', actual)" @cerrar="emit('cerrar')">
-      <span v-if="imagenes.length > 1" class="px-1 text-sm text-neutral-300 tabular-nums">
-        {{ indice + 1 }} / {{ imagenes.length }}
-      </span>
+      <span v-if="contador" class="px-1 text-sm text-neutral-300 tabular-nums">{{ contador }}</span>
     </BarraVisor>
 
     <div class="relative flex-1">
       <div ref="emblaRef" class="absolute inset-0 overflow-hidden">
         <div class="flex h-full touch-pan-y">
           <div v-for="(item, i) in imagenes" :key="item.id" class="relative flex-[0_0_100%] min-w-0">
-            <!-- Clic en el fondo cierra; Embla ya se come el clic que acaba un arrastre -->
-            <div v-if="cerca(i)" class="absolute inset-0 flex items-center justify-center p-4" @click.self="emit('cerrar')">
+            <div v-if="cerca(i)" class="absolute inset-0 flex items-center justify-center p-4" @pointerdown="alPulsar" @click="alSoltar">
               <img
                 v-if="fotos[item.id]?.url && !fotos[item.id].error"
                 :src="fotos[item.id].url"

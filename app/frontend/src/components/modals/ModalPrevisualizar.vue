@@ -6,13 +6,14 @@ import Dialog from 'primevue/dialog'
 const VisorPdf = defineAsyncComponent(() => import('@/components/VisorPdf.vue'))
 const VisorImagen = defineAsyncComponent(() => import('@/components/VisorImagen.vue'))
 const VisorAudio = defineAsyncComponent(() => import('@/components/VisorAudio.vue'))
+const VisorVideo = defineAsyncComponent(() => import('@/components/VisorVideo.vue'))
 
 const gestor = useGestorItems()
 
 const tipoPreview = computed(() => gestor.modal.payload?.item?.tipo_visor || null)
 
-// PDF, imágenes y audio ocupan toda la pantalla; el vídeo, una ventana centrada
-const pantallaCompleta = computed(() => ['pdf', 'imagen', 'audio'].includes(tipoPreview.value))
+// Todos los visores ocupan toda la pantalla
+const pantallaCompleta = computed(() => ['pdf', 'imagen', 'audio', 'video'].includes(tipoPreview.value))
 
 const estiloVentana = computed(() => {
   if (pantallaCompleta.value) return { width: '100vw', height: '100dvh', maxHeight: '100dvh', margin: 0 }
@@ -55,30 +56,13 @@ const estiloVentana = computed(() => {
     />
 
     <!-- VIDEO -->
-    <div v-else-if="tipoPreview === 'video'" class="relative bg-black">
-      <div class="absolute inset-x-0 top-0 z-10 flex items-center justify-between px-4 py-3">
-        <div class="flex items-center gap-2 min-w-0 bg-black/40 backdrop-blur-sm rounded-full px-3 py-1">
-          <i class="pi pi-video text-white/60 text-xs shrink-0" />
-          <span class="text-white/90 text-sm font-medium truncate max-w-xs">
-            {{ gestor.modal.payload?.item?.nombre }}
-          </span>
-        </div>
-      </div>
-      <button
-        @click="gestor.cerrarModal"
-        class="absolute top-3 right-3 z-20 w-8 h-8 rounded-full bg-black/40 hover:bg-black/70
-              flex items-center justify-center text-white transition-colors cursor-pointer"
-        aria-label="Cerrar"
-      >
-        <i class="pi pi-times text-xs" />
-      </button>
-      <video
-        controls autoplay
-        :src="gestor.modal.payload?.url"
-        class="block mx-auto max-w-full"
-        style="max-height: 90vh; padding-top: 3rem"
-      />
-    </div>
+    <VisorVideo
+      v-else-if="tipoPreview === 'video'"
+      :videos="gestor.modal.payload.videos"
+      :inicio="gestor.modal.payload.inicio"
+      @cerrar="gestor.cerrarModal"
+      @descargar="gestor.descargarArchivo"
+    />
 
     <!-- PDF -->
     <VisorPdf

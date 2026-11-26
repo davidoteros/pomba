@@ -1,0 +1,83 @@
+/* Barra de progreso y volumen de los reproductores de audio y vídeo (ControlesAudio, ControlesVideo) */
+
+/* Visores: blanco sobre negro */
+.controles-medio {
+  --relleno: #fff;
+  --cargado: #737373;
+  --pista: #404040;
+}
+/* Versiones: con los colores del tema */
+.controles-medio.compacto {
+  --relleno: var(--p-primary-color);
+  --cargado: var(--p-surface-400);
+  --pista: var(--p-surface-200);
+}
+.dark .controles-medio.compacto {
+  --cargado: var(--p-surface-500);
+  --pista: var(--p-surface-700);
+}
+
+/* La barra es un <input type="range"> del navegador: teclado y lectores de pantalla de serie */
+.controles-medio .rango {
+  appearance: none;
+  -webkit-appearance: none;
+  display: block;
+  width: 100%;
+  height: 20px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  touch-action: none;
+}
+.controles-medio .rango.volumen { width: 84px; }
+.controles-medio .rango::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--relleno) var(--relleno-hasta), var(--cargado) var(--relleno-hasta),
+    var(--cargado) var(--cargado-hasta), var(--pista) var(--cargado-hasta));
+}
+.controles-medio .rango::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--relleno) var(--relleno-hasta), var(--cargado) var(--relleno-hasta),
+    var(--cargado) var(--cargado-hasta), var(--pista) var(--cargado-hasta));
+}
+/* La bolita sale al pasar el ratón o con el foco; en táctil siempre, para ver dónde coger */
+.controles-medio .rango::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--relleno);
+  transform: scale(0);
+  transition: transform 0.12s;
+}
+.controles-medio .rango::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--relleno);
+  transform: scale(0);
+  transition: transform 0.12s;
+}
+.controles-medio .rango:hover::-webkit-slider-thumb,
+.controles-medio .rango:active::-webkit-slider-thumb,
+.controles-medio .rango:focus-visible::-webkit-slider-thumb { transform: scale(1); }
+.controles-medio .rango:hover::-moz-range-thumb,
+.controles-medio .rango:active::-moz-range-thumb,
+.controles-medio .rango:focus-visible::-moz-range-thumb { transform: scale(1); }
+@media (pointer: coarse) {
+  .controles-medio .rango::-webkit-slider-thumb { transform: scale(1); }
+  .controles-medio .rango::-moz-range-thumb { transform: scale(1); }
+}
+.controles-medio .rango:focus-visible { outline: none; }
+.controles-medio .rango:focus-visible::-webkit-slider-runnable-track { outline: 2px solid rgb(255 255 255 / 0.5); outline-offset: 4px; }
+.controles-medio .rango:focus-visible::-moz-range-track { outline: 2px solid rgb(255 255 255 / 0.5); outline-offset: 4px; }
+.controles-medio.compacto .rango:focus-visible::-webkit-slider-runnable-track { outline-color: var(--p-primary-color); }
+.controles-medio.compacto .rango:focus-visible::-moz-range-track { outline-color: var(--p-primary-color); }
+
+.controles-medio .boton { outline: none; }
+.controles-medio .boton:focus-visible { box-shadow: 0 0 0 2px #171717, 0 0 0 4px rgb(255 255 255 / 0.6); }

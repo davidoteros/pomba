@@ -5,6 +5,7 @@ import * as pdfjsLib from 'pdfjs-dist'
 // ?worker: Vite lo empaqueta como un .js (un .mjs suelto no lo sirven bien todos los servidores)
 import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?worker'
 import 'pdfjs-dist/web/pdf_viewer.css'
+import { useCerrarEnFondo, useFocoAlAbrir } from '@/composables/useVisor'
 import BarraVisor from '@/components/BarraVisor.vue'
 
 const props = defineProps({
@@ -13,7 +14,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['cerrar', 'descargar'])
 
-const contenedor = ref(null)
+const contenedor = useFocoAlAbrir() // con el foco en las hojas, ↑ ↓ y espacio hacen scroll
 const hojas = ref(null)
 const pagina = ref(1)
 const paginas = ref(0)
@@ -83,20 +84,13 @@ onMounted(async () => {
   }
 })
 
-// Clic en el fondo gris cierra, como en el visor de fotos: pulsar y soltar ahí sin moverse
-// (así no cierra al seleccionar texto ni al arrastrar la barra de scroll)
-let pulsadoEnFondo = null
-const esFondo = (e) => e.target === contenedor.value || e.target === hojas.value
-function alPulsar(e) {
+// Clic en el fondo gris cierra, como en los otros visores (la barra de scroll no cuenta como fondo)
+function esFondo(e) {
+  if (e.target !== contenedor.value && e.target !== hojas.value) return false
   const caja = contenedor.value.getBoundingClientRect()
-  const barra = e.clientX - caja.left >= contenedor.value.clientWidth || e.clientY - caja.top >= contenedor.value.clientHeight
-  pulsadoEnFondo = esFondo(e) && !barra ? { x: e.clientX, y: e.clientY } : null
+  return e.clientX - caja.left < contenedor.value.clientWidth && e.clientY - caja.top < contenedor.value.clientHeight
 }
-function alSoltar(e) {
-  const quieto = pulsadoEnFondo && Math.hypot(e.clientX - pulsadoEnFondo.x, e.clientY - pulsadoEnFondo.y) < 6
-  if (quieto && esFondo(e)) emit('cerrar')
-  pulsadoEnFondo = null
-}
+const { alPulsar, alSoltar } = useCerrarEnFondo(esFondo, () => emit('cerrar'))
 
 onBeforeUnmount(() => {
   cerrado = true
@@ -133,7 +127,7 @@ onBeforeUnmount(() => {
 
     <!-- PDFViewer pide un contenedor con position: absolute -->
     <div class="relative flex-1">
-      <div ref="contenedor" class="absolute inset-0 overflow-auto" @pointerdown="alPulsar" @click="alSoltar">
+      <div ref="contenedor" tabindex="-1" class="absolute inset-0 overflow-auto outline-none" @pointerdown="alPulsar" @click="alSoltar">
         <div ref="hojas" class="pdfViewer" />
       </div>
       <div v-if="estado === 'cargando'" class="absolute inset-0 flex items-center justify-center text-neutral-400">
